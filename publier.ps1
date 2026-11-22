@@ -8,6 +8,7 @@ param(
 )
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
+[Environment]::CurrentDirectory = $PSScriptRoot   # pour les fonctions .NET (chemins relatifs)
 $godot = "D:\Dev\Godot\Godot_v4.7.2-stable_win64_console.exe"
 $depot = "HaelyosStudio/chien-berger"
 $utf8 = New-Object Text.UTF8Encoding $false
