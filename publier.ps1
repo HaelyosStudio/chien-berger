@@ -1,11 +1,11 @@
 ﻿# Publie une nouvelle version de Chien Berger sur GitHub (mise à jour automatique des téléphones).
 # Usage :  powershell -ExecutionPolicy Bypass -File publier.ps1 -Notes "Ce qui a changé"
-#          (option -Version 0.4.0 pour choisir le numéro ; sinon le dernier chiffre augmente : 0.3.0 -> 0.3.1)
+#          (option -NouvelleVersion 0.4.0 pour choisir le numéro ; sinon le dernier chiffre augmente : 0.3.0 -> 0.3.1)
 #          (option -SansIncrement pour republier la version actuelle telle quelle)
 # Étapes : numéro de version +1, export du paquet .pck et de l'APK, manifest.json, commit + release GitHub.
 param(
 	[string]$Notes = "Améliorations du jeu.",
-	[string]$Version = "",
+	[string]$NouvelleVersion = "",
 	[switch]$SansIncrement
 )
 $ErrorActionPreference = "Stop"
@@ -21,8 +21,8 @@ $build = [int]([regex]::Match($projet, 'config/build=(\d+)').Groups[1].Value)
 $version = [regex]::Match($projet, 'config/version="([^"]+)"').Groups[1].Value
 if (-not $SansIncrement) {
 	$build += 1
-	if ($Version -ne "") {
-		$version = $Version
+	if ($NouvelleVersion -ne "") {
+		$version = $NouvelleVersion
 	} else {
 		$p = $version.Split(".")
 		while ($p.Count -lt 3) { $p += "0" }

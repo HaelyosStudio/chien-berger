@@ -6,7 +6,7 @@ config_version=5
 
 config/name="Chien Berger"
 config/description="Guide les moutons dans leur enclos avec ton chien berger (jeu physique pour téléphone)."
-config/version="1.4"
+config/version="0.3.0"
 config/build=6
 config/maj_manifeste="https://github.com/HaelyosStudio/chien-berger/releases/latest/download/manifest.json"
 run/main_scene="res://main.tscn"
