@@ -30,6 +30,19 @@ var peur := 0.0                  # 0 = calme, 1 = terrifié (lu par les voisins)
 var noir := false                # mouton noir
 var dore := false               # mouton d'or : rare, plus peureux et plus rapide
 var fond := Vector2.UP           # direction de l'entrée vers le fond de l'enclos
+var belier := false              # le chef : têtu, fonce sur le chien de face, le troupeau le suit
+var agneau := false              # petit : suit sa maman partout, appelle s'il la perd
+var mere = null                  # maman de l'agneau (un autre mouton)
+var petit = null                 # agneau de cette maman
+var reuni := false               # agneau rentré avec sa maman (bonus déjà donné)
+var perdu := false               # agneau trop loin de sa maman
+
+signal charge(dir: Vector2)      # le bélier vient de foncer sur le chien
+signal appelle                   # l'agneau perdu bêle
+
+var _face := false               # le bélier fait face au chien
+var _recharge_charge := 0.0
+var _appel := 1.0
 
 var _errance := Vector2.ZERO
 var _prochaine_errance := 0.0
@@ -69,11 +82,13 @@ func _ready() -> void:
 	physics_material_override = matiere
 	var forme := CollisionShape2D.new()
 	var cercle := CircleShape2D.new()
-	cercle.radius = RAYON
+	var taille := 1.35 if belier else (0.62 if agneau else 1.0)
+	mass = 3.0 if belier else (0.5 if agneau else 1.0)
+	cercle.radius = RAYON * taille
 	forme.shape = cercle
 	add_child(forme)
 	_regard = Vector2.from_angle(randf() * TAU)
-	_r = RAYON * randf_range(0.88, 1.12)
+	_r = RAYON * taille * (1.0 if belier or agneau else randf_range(0.88, 1.12))
 	_prochaine_errance = randf() * 2.0
 	_phase = randf() * TAU
 	_tour = randi() % 2
@@ -90,11 +105,22 @@ func _physics_process(delta: float) -> void:
 
 	# 1. Peur du chien : on s'éloigne, d'autant plus vite qu'il est près (et qu'il court)
 	var peur_directe := _panique
+	_recharge_charge = maxf(0.0, _recharge_charge - delta)
 	if chien:
 		var ecart := pos - chien.global_position
 		var dist := ecart.length()
-		var portee := PEUR_DISTANCE * (1.3 if dore else 1.0)
-		if dist < portee and dist > 0.1:
+		var portee := PEUR_DISTANCE * (1.3 if dore else (1.15 if agneau else 1.0))
+		# le bélier ne recule pas devant un chien qui arrive de face : il le regarde… et fonce
+		_face = belier and not dans_enclos and dist < 170.0 and _regard.dot(-ecart / maxf(dist, 0.1)) > 0.3
+		if _face:
+			if dist < 64.0 and _recharge_charge <= 0.0:
+				_recharge_charge = 2.2
+				var vers := -ecart / maxf(dist, 0.1)
+				apply_central_impulse(vers * 520.0)
+				chien.apply_central_impulse(vers * 1150.0)
+				chien.set("etourdi", 0.7)
+				charge.emit(vers)
+		elif dist < portee and dist > 0.1:
 			var p := 1.0 - dist / portee
 			if chien.linear_velocity.length() > 160.0:
 				p *= 1.35
@@ -135,6 +161,31 @@ func _physics_process(delta: float) -> void:
 			var dp := vers_porte.length()
 			if dp < 260.0:
 				force += vers_porte / maxf(dp, 1.0) * FORCE_SUIVRE_ENCLOS * (0.35 + part) * (1.0 - dp / 260.0)
+	# 2 ter. Le bélier est le chef : les moutons proches le suivent
+	if not belier and not dans_enclos and infos.has("belier"):
+		var vers_chef: Vector2 = infos.belier - pos
+		var dc := vers_chef.length()
+		if dc > 55.0 and dc < 320.0:
+			force += vers_chef / dc * 65.0 * (1.0 - dc / 320.0)
+
+	# 2 quater. L'agneau colle à sa maman ; trop loin, il s'arrête et l'appelle
+	if agneau and is_instance_valid(mere):
+		var vers_mere: Vector2 = mere.global_position - pos
+		var dm := vers_mere.length()
+		perdu = dm > 150.0 and not (dans_enclos and mere.dans_enclos)
+		if dm > 26.0:
+			force += vers_mere / dm * (300.0 if not perdu else 120.0) * minf((dm - 26.0) / 60.0, 1.0)
+		if perdu:
+			_appel -= delta
+			if _appel <= 0.0:
+				_appel = randf_range(2.0, 3.0)
+				appelle.emit()
+
+	# 2 quinquies. Coup de vent (les petits s'envolent presque, le bélier résiste)
+	var vent: Vector2 = infos.get("vent", Vector2.ZERO)
+	if vent != Vector2.ZERO:
+		force += vent * (0.35 if belier else (1.5 if agneau else 1.0)) * (0.25 if dans_enclos else 1.0)
+
 	# 3. Errance tranquille (ou pause pour brouter)
 	_prochaine_errance -= delta
 	if _prochaine_errance <= 0.0:
@@ -209,7 +260,10 @@ func _process(delta: float) -> void:
 	_choc = maxf(0.0, _choc - delta * 5.0)
 	var v := linear_velocity
 	var vit := v.length()
-	if vit > 15.0:
+	if _face and chien:
+		var vers_chien := (chien.global_position - global_position).normalized()
+		_regard = _regard.slerp(vers_chien, minf(delta * 1.3, 1.0)).normalized()
+	elif vit > 15.0:
 		var r := _regard.lerp(v / vit, minf(delta * 9.0, 1.0))
 		if r.length() > 0.01:
 			_regard = r.normalized()
@@ -255,7 +309,7 @@ func _process(delta: float) -> void:
 		_yeux_effrayes = effraye
 		_tete.queue_redraw()
 
-	_alerte.visible = _panique > 0.55
+	_alerte.visible = _panique > 0.55 or perdu
 	if _alerte.visible:
 		_alerte.position = Vector2(0, -_r - 8 - saut)
 
@@ -294,6 +348,8 @@ func _dessiner_corps(n: Node2D) -> void:
 	var laine := Color(0.33, 0.3, 0.29) if noir else Color(0.97, 0.96, 0.92)
 	if dore:
 		laine = Color(1.0, 0.8, 0.28)
+	elif belier:
+		laine = Color(0.9, 0.84, 0.72)
 	var laine_ombre := laine.darkened(0.2)
 	var laine_lumiere := laine.lightened(0.5) if (noir or dore) else Color.WHITE
 	var bouclettes: Array[Vector2] = []
@@ -315,6 +371,11 @@ func _dessiner_tete(n: Node2D) -> void:
 	n.draw_circle(Vector2(-2.0, r * 0.5), r * 0.22, fonce)
 	n.draw_circle(Vector2(-2.0, -r * 0.5), r * 0.22, fonce)
 	n.draw_circle(Vector2.ZERO, r * 0.42, fonce)
+	if belier:      # grosses cornes enroulées
+		var corne := Color("a07850")
+		for s in [-1.0, 1.0]:
+			n.draw_arc(Vector2(-3.0, r * 0.42 * s), r * 0.3, 0.0, TAU * 0.8, 14, corne.darkened(0.3), 5.0)
+			n.draw_arc(Vector2(-3.0, r * 0.42 * s), r * 0.3, 0.0, TAU * 0.8, 14, corne, 3.0)
 	var oeil := 3.0 if _yeux_effrayes else 1.6
 	for s in [-1.0, 1.0]:
 		var p := Vector2(1.5, 3.0 * s)
@@ -325,8 +386,9 @@ func _dessiner_tete(n: Node2D) -> void:
 func _dessiner_alerte(n: Node2D) -> void:
 	var police := ThemeDB.fallback_font
 	var pos := Vector2(-3, 0)
-	n.draw_string_outline(police, pos, "!", HORIZONTAL_ALIGNMENT_LEFT, -1, 20, 5, Color(0.1, 0.05, 0))
-	n.draw_string(police, pos, "!", HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color("ffcf3a"))
+	var signe := "?" if agneau else "!"
+	n.draw_string_outline(police, pos, signe, HORIZONTAL_ALIGNMENT_LEFT, -1, 20, 5, Color(0.1, 0.05, 0))
+	n.draw_string(police, pos, signe, HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color("ff8fb1") if agneau else Color("ffcf3a"))
 
 
 ## Un morceau de dessin : dessiné une seule fois (ou sur demande), puis simplement déplacé.

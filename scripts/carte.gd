@@ -267,7 +267,7 @@ func _essayer(n: int, rng: RandomNumberGenerator, simple: bool) -> Dictionary:
 	for i in c.chemin.size() - 1:
 		longueur += c.chemin[i].distance_to(c.chemin[i + 1])
 	var base: float = 50.0 + c.moutons * 1.8 + longueur * 0.08 + (20.0 if not c.riviere.is_empty() else 0.0) + c.etangs.size() * 8.0
-	c.temps = snappedf(base * clampf(1.15 - n * 0.025, 0.85, 1.15), 5.0)
+	c.temps = snappedf(base * 1.12 * clampf(1.15 - n * 0.025, 0.85, 1.15), 5.0)
 
 	# Données utiles au pilote automatique : la grille des distances jusqu'à l'entrée
 	c.grille_dist = _dist.duplicate()

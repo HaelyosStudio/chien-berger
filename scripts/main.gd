@@ -54,6 +54,12 @@ var _os: Os = null
 var _prochain_os := 12.0
 var _loup: Loup = null
 var _loup_prevu := false
+var _belier: Node2D = null
+var _vent := Vector2.ZERO          # direction du prochain / du coup de vent
+var _vent_t := -1.0               # >0 : temps restant du coup de vent en cours
+var _prochain_vent := 0.0
+var _rafale: Rafale = null
+var _astuce_belier := false
 var _prochain_loup := 20.0
 var _loups_restants := 0
 var _rng_jeu := RandomNumberGenerator.new()
@@ -235,19 +241,50 @@ func _construire_niveau() -> void:
 	_grille.clear()
 	_infos.clear()
 	var index_dore: int = rng.randi() % c.positions.size() if niveau >= 2 else -1
+	# Rôles : un bélier (dès le niveau 3) et des agneaux collés à leur maman (dès le niveau 2)
+	var libres: Array[int] = []
+	for i in c.positions.size():
+		if i != index_dore:
+			libres.append(i)
+	for i in range(libres.size() - 1, 0, -1):
+		var j := rng.randi() % (i + 1)
+		var tmp := libres[i]
+		libres[i] = libres[j]
+		libres[j] = tmp
+	var index_belier: int = libres.pop_back() if niveau >= 3 else -1
+	var mamans := {}          # index de l'agneau -> index de sa maman
+	var nb_agneaux := 0 if niveau < 2 else mini(1 + (niveau - 2) / 2, 4)
+	for k in nb_agneaux:
+		if libres.size() < 2:
+			break
+		var a: int = libres.pop_back()
+		mamans[a] = libres.pop_back()
 	for p in c.positions:
+		var i := moutons.size()
 		var m := Mouton.new()
-		m.dore = moutons.size() == index_dore
+		m.dore = i == index_dore
+		m.belier = i == index_belier
+		m.agneau = mamans.has(i)
 		m.position = p
+		if m.agneau:          # né à côté de sa maman
+			m.position = c.positions[mamans[i]] + Vector2.from_angle(rng.randf() * TAU) * 22.0
+		if m.belier:
+			m.charge.connect(_belier_charge.bind(m))
+		if m.agneau:
+			m.appelle.connect(_agneau_appelle.bind(m))
 		if "--victoire" in OS.get_cmdline_user_args():     # test : troupeau déjà dans l'enclos
 			m.position = Vector2(rng.randf_range(_enclos.position.x + 30, _enclos.end.x - 30), rng.randf_range(_enclos.position.y + 30, _enclos.end.y - 30))
 		m.enclos = _zone_comptee()
 		m.fond = c.dedans
 		m.grille = _grille
 		m.infos = _infos
-		m.noir = rng.randf() < 0.07
+		m.noir = rng.randf() < 0.07 and not (m.belier or m.agneau)
 		_monde.add_child(m)
 		moutons.append(m)
+	for a in mamans:
+		moutons[a].mere = moutons[mamans[a]]
+		moutons[mamans[a]].petit = moutons[a]
+	_belier = moutons[index_belier] if index_belier >= 0 else null
 
 	chien = Chien.new()
 	chien.position = c.chien
@@ -276,6 +313,10 @@ func _construire_niveau() -> void:
 	_prochain_loup = _rng_jeu.randf_range(15.0, 28.0)
 	_loups_restants = 1 if niveau < 8 else 2
 	_infos.loup_actif = false
+	_vent_t = -1.0
+	_prochain_vent = _rng_jeu.randf_range(14.0, 22.0) if niveau >= 6 else INF
+	_rafale = Rafale.new()
+	_monde.add_child(_rafale)
 	queue_redraw()
 	_barre.anchor_right = 0.0
 	_maj_hud(0)
@@ -288,6 +329,14 @@ func _demarrer() -> void:
 	en_jeu = true
 	if _temps_ecoule == 0.0:
 		_effets_air.texte(CHAMP.get_center() + Vector2(0, -60), _carte.nom, Color("fff3c4"), 46, 2.6)
+		var astuces := {
+			2: ["Nouveau : les agneaux !", "Rentre-les avec leur maman (+5 s)"],
+			3: ["Nouveau : le bélier !", "Le troupeau le suit. De face, il fonce !"],
+			6: ["Nouveau : le vent !", "Les rafales poussent les moutons"],
+		}
+		if astuces.has(niveau):
+			_effets_air.texte(CHAMP.get_center() + Vector2(0, 10), astuces[niveau][0], Color("ffd23f"), 34, 3.6)
+			_effets_air.texte(CHAMP.get_center() + Vector2(0, 52), astuces[niveau][1], Color("ffffff"), 26, 3.6)
 
 
 ## Grille de voisinage, remplie avant que les moutons ne calculent leurs forces
@@ -310,6 +359,13 @@ func _physics_process(_delta: float) -> void:
 	if not _carte.is_empty():
 		_infos.porte = _carte.porte_centre + _carte.dedans * 30.0
 	_infos.part_dedans = 1.0 - float(dehors) / maxi(1, moutons.size())
+	# le bélier est le chef : dehors, on le suit ; rentré, tout le monde veut le rejoindre
+	_infos.erase("belier")
+	if is_instance_valid(_belier):
+		if _belier.dans_enclos:
+			_infos.part_dedans = minf(1.0, _infos.part_dedans + 0.35)
+		else:
+			_infos.belier = _belier.global_position
 
 
 func _process(delta: float) -> void:
@@ -350,6 +406,7 @@ func _process(delta: float) -> void:
 	_dernier_ding += delta
 	_gerer_os(delta)
 	_gerer_loup(delta)
+	_gerer_vent(delta)
 	var dedans := 0
 	for m in moutons:
 		if m.dans_enclos:
@@ -495,6 +552,15 @@ func _mouton_rentre(m: Node2D) -> void:
 		if _combo % 10 == 0:
 			_effets_air.confettis(p, 25)
 			_secousse = 0.3
+	# agneau et maman enfin réunis dans l'enclos
+	var a = m if m.agneau else m.petit
+	if a != null and is_instance_valid(a) and not a.reuni and a.compte and a.mere.compte:
+		a.reuni = true
+		_temps_restant += 5.0
+		for k in 3:
+			_effets_air.coeur(a.global_position + Vector2(randf_range(-14, 14), randf_range(-10, 4)))
+		_effets_air.texte(a.global_position + Vector2(0, -48), "Réunis ! +5 s", Color("ff8fb1"), 32, 1.4)
+		_sons.bele_agneau()
 	if m.dore:
 		# le mouton d'or rapporte du temps
 		_temps_restant += 15.0
@@ -592,6 +658,54 @@ func _loup_chasse() -> void:
 	_effets_air.texte(_loup.global_position + Vector2(0, -36), "Ouste !", Color("ffffff"), 38, 1.2)
 	_effets_sol.herbe(_loup.global_position, 10)
 	_prochain_loup = _rng_jeu.randf_range(20.0, 35.0)
+
+
+## Le bélier vient de foncer sur le chien (approché de face)
+func _belier_charge(dir: Vector2, b: Node2D) -> void:
+	_sons.choc()
+	_secousse = 0.7
+	Input.vibrate_handheld(90)
+	var p := b.global_position + dir * 22.0
+	_effets_air.etincelles(p, 10, Color("ffffff"))
+	_effets_sol.herbe(p, 8)
+	_effets_air.texte(p + Vector2(0, -30), "BOING !", Color("ffb347"), 36, 0.9)
+	if not _astuce_belier:
+		_astuce_belier = true
+		_effets_air.texte(b.global_position + Vector2(0, -70), "Prends-le par derrière !", Color("fff3c4"), 28, 2.2)
+
+
+## Un agneau a perdu sa maman : il bêle (petit son aigu)
+func _agneau_appelle(a: Node2D) -> void:
+	if not en_jeu:
+		return
+	_sons.bele_agneau()
+	_effets_air.texte(a.global_position + Vector2(0, -26), "Bêê ?", Color("ff8fb1"), 22, 0.9)
+
+
+## Coups de vent (dès le niveau 6) : annoncés 1,5 s avant, ils poussent le troupeau 3 secondes.
+func _gerer_vent(delta: float) -> void:
+	if _vent_t > 0.0:
+		_vent_t -= delta
+		var k := sin(PI * clampf(1.0 - _vent_t / 3.0, 0.0, 1.0))      # monte puis retombe
+		_infos.vent = _vent * 230.0 * k
+		_rafale.force = k
+		if _vent_t <= 0.0:
+			_infos.erase("vent")
+			_rafale.force = 0.0
+			_prochain_vent = _rng_jeu.randf_range(18.0, 30.0)
+		return
+	_prochain_vent -= delta
+	if _prochain_vent <= 1.5 and _rafale.annonce == Vector2.ZERO:
+		# souffle de travers par rapport au chemin vers l'enclos (sinon il aiderait)
+		var vers_porte: Vector2 = (_carte.porte_centre - _infos.get("dehors", CHAMP.get_center())).normalized()
+		_vent = vers_porte.orthogonal() * (1.0 if _rng_jeu.randf() < 0.5 else -1.0)
+		_rafale.annonce = _vent
+		_effets_air.texte(CHAMP.get_center() + Vector2(0, -200), "Coup de vent !", Color("d8f3ff"), 40, 1.6)
+	if _prochain_vent <= 0.0:
+		_rafale.annonce = Vector2.ZERO
+		_rafale.dir = _vent
+		_vent_t = 3.0
+		_sons.vent()
 
 
 func _rebond(lbl: Control) -> void:
@@ -851,7 +965,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			o = o.normalized() * r
 		_joystick.bouton = o
 		var force := o.length() / r
-		chien.direction = Vector2.ZERO if force < 0.12 else o.normalized() * ((force - 0.12) / 0.88)
+		# zone morte puis courbe douce : un petit geste = un petit pas, pleine vitesse seulement au bord
+		chien.direction = Vector2.ZERO if force < 0.15 else o.normalized() * pow((force - 0.15) / 0.85, 1.7)
 		_joystick.queue_redraw()
 
 
@@ -1461,7 +1576,7 @@ class Joystick extends Control:
 	var aide := false
 	var centre := Vector2.ZERO
 	var bouton := Vector2.ZERO
-	var rayon := 105.0
+	var rayon := 125.0
 	var _t := 0.0
 
 	func _ready() -> void:
@@ -1604,3 +1719,42 @@ class BoutonRond extends Control:
 		var pos := Vector2(cc.x - largeur / 2.0, cc.y + taille * 0.35)
 		draw_string_outline(police, pos, texte, HORIZONTAL_ALIGNMENT_LEFT, -1, taille, 6, Color(0, 0, 0, 0.35))
 		draw_string(police, pos, texte, HORIZONTAL_ALIGNMENT_LEFT, -1, taille, Color.WHITE)
+
+
+## Traînées de vent : de fines lignes blanches qui traversent le pré (annonce puis rafale).
+class Rafale extends Node2D:
+	var dir := Vector2.RIGHT
+	var annonce := Vector2.ZERO     # quelques feuilles annoncent la rafale
+	var force := 0.0
+	var _traits: Array = []
+
+	func _ready() -> void:
+		z_index = 5
+		for i in 26:
+			_traits.append(Vector3(randf_range(0, 720), randf_range(100, 1280), randf()))
+
+	func _process(delta: float) -> void:
+		var d := dir if annonce == Vector2.ZERO else annonce
+		var vit := 900.0 * force + (160.0 if annonce != Vector2.ZERO else 0.0)
+		if vit <= 0.0:
+			if visible:
+				visible = false
+			return
+		visible = true
+		for i in _traits.size():
+			var t: Vector3 = _traits[i]
+			var p := Vector2(t.x, t.y) + d * vit * delta * (0.7 + t.z * 0.6)
+			p.x = fposmod(p.x, 760.0) - 20.0
+			p.y = fposmod(p.y - 100.0, 1200.0) + 100.0
+			_traits[i] = Vector3(p.x, p.y, t.z)
+		queue_redraw()
+
+	func _draw() -> void:
+		var d := dir if annonce == Vector2.ZERO else annonce
+		for t in _traits:
+			var p := Vector2(t.x, t.y)
+			if annonce != Vector2.ZERO:
+				if t.z < 0.3:      # feuilles qui tourbillonnent
+					draw_circle(p, 4.0, Color(0.45, 0.7, 0.3, 0.9))
+			else:
+				draw_line(p, p - d * (40.0 + 60.0 * t.z) * force, Color(1, 1, 1, 0.45 * force), 2.0 + t.z * 2.0)

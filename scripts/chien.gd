@@ -3,11 +3,11 @@ extends RigidBody2D
 ## Il suit la direction du joystick tactile (ou les flèches du clavier) et peut aboyer.
 
 const RAYON := 16.0
-const FORCE := 6800.0
-const VITESSE_MAX := 440.0
+const FORCE := 5000.0
+const VITESSE_MAX := 340.0
 const RECHARGE_ABOI := 1.2       # secondes entre deux aboiements
 const PORTEE_ABOI := 260.0
-const PUISSANCE_ABOI := 420.0
+const PUISSANCE_ABOI := 370.0
 const DUREE_ONDE := 0.5
 
 var direction := Vector2.ZERO    # donnée par le joystick (longueur 0 à 1)
@@ -17,6 +17,8 @@ var _pas := 0.0
 var _onde := 0.0
 var _queue := 0.0              # phase du remuement de la queue
 var turbo := 0.0               # secondes de turbo restantes (os ramassé)
+var etourdi := 0.0             # secondes d'étourdissement (coup de tête du bélier)
+var _dir_lisse := Vector2.ZERO # direction adoucie (évite les à-coups du doigt)
 
 
 func _ready() -> void:
@@ -40,7 +42,10 @@ func _physics_process(delta: float) -> void:
 	var dir := Input.get_vector("ui_left", "ui_right", "ui_up", "ui_down")
 	if dir == Vector2.ZERO:
 		dir = direction.limit_length(1.0)
-	apply_central_force(dir * FORCE * (1.5 if turbo > 0.0 else 1.0))
+	_dir_lisse = _dir_lisse.lerp(dir, minf(delta * 9.0, 1.0))
+	etourdi = maxf(0.0, etourdi - delta)
+	if etourdi <= 0.0:
+		apply_central_force(_dir_lisse * FORCE * (1.5 if turbo > 0.0 else 1.0))
 
 	turbo = maxf(0.0, turbo - delta)
 	recharge = maxf(0.0, recharge - delta * (4.0 if turbo > 0.0 else 1.0))
@@ -131,3 +136,7 @@ func _draw() -> void:
 	draw_circle(Vector2(17, -4), 1.7, Color.WHITE)
 	draw_circle(Vector2(17, 4), 1.7, Color.WHITE)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	if etourdi > 0.0:      # petites étoiles qui tournent au-dessus de la tête
+		for i in 3:
+			var a := etourdi * 9.0 + TAU * i / 3.0
+			draw_circle(Vector2(cos(a) * 14.0, -24.0 + sin(a) * 5.0), 3.5, Color(1.0, 0.85, 0.3))

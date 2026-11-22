@@ -10,6 +10,8 @@ var _bonus: AudioStreamWAV
 var _ding: AudioStreamWAV
 var _grogne: AudioStreamWAV
 var _glapit: AudioStreamWAV
+var _choc: AudioStreamWAV
+var _vent: AudioStreamWAV
 var _lecteurs: Array[AudioStreamPlayer] = []
 var _suivant := 0
 
@@ -65,6 +67,32 @@ func _ready() -> void:
 		var env := minf(t / 0.01, 1.0) * clampf((d - t) / 0.1, 0.0, 1.0)
 		var phase := TAU * (1100.0 * t + (500.0 - 1100.0) * t * t / (2.0 * d))
 		return env * 0.45 * (sin(phase) + 0.25 * randf_range(-1.0, 1.0)))
+
+	# Coup de tête du bélier : « bonk » sourd et rebondi
+	_choc = _fabriquer(0.25, func(t: float, _d: float) -> float:
+		var env := minf(t / 0.003, 1.0) * exp(-t * 22.0)
+		var f := 180.0 * exp(-t * 6.0) + 60.0
+		return env * 0.8 * (sin(TAU * f * t) + 0.3 * randf_range(-1.0, 1.0) * exp(-t * 60.0)))
+
+	# Souffle du vent : bruit filtré qui enfle puis retombe
+	var filtre := [0.0]
+	_vent = _fabriquer(1.6, func(t: float, d: float) -> float:
+		var env := sin(PI * t / d)
+		filtre[0] = filtre[0] * 0.96 + randf_range(-1.0, 1.0) * 0.04
+		return env * filtre[0] * 6.0 * (0.7 + 0.3 * sin(TAU * 1.3 * t)))
+
+
+func choc() -> void:
+	_jouer(_choc, randf_range(0.9, 1.1))
+
+
+func vent() -> void:
+	_jouer(_vent, 1.0)
+
+
+## Petit bêlement aigu d'agneau
+func bele_agneau() -> void:
+	_jouer(_bele, randf_range(1.55, 1.75))
 
 
 func bonus() -> void:
