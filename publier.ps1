@@ -63,5 +63,5 @@ $manifeste = [ordered]@{
 git add -A
 git commit -m "Version $version : $Notes" | Out-Null
 git push origin main
-gh release create "v$version" build/chien-berger.pck build/manifest.json build/ChienBerger.apk --repo $depot --title "Chien Berger $version" --notes $Notes --latest
-Write-Host "Publié : Chien Berger $version (build $build)."
+gh release create "v$version" build/chien-berger.pck build/manifest.json build/ChienBerger.apk --repo $depot --title "SheperdRun $version" --notes $Notes --latest
+Write-Host "Publié : SheperdRun $version (build $build)."

@@ -1,5 +1,5 @@
 extends Node2D
-## Chien Berger : guide tout le troupeau dans l'enclos avant la fin du temps.
+## SheperdRun : guide tout le troupeau dans l'enclos avant la fin du temps.
 ## Tout est construit par le code (aucune image) pour rester léger sur téléphone.
 ## Commandes : joystick flottant (pose le doigt n'importe où et glisse) ; bouton OUAF = aboyer.
 ## Sur ordinateur : clic-glisser (souris = doigt) ou flèches du clavier + Espace.
@@ -16,6 +16,7 @@ const TAILLE := Vector2(720, 1280)
 const CHAMP := Rect2(24, 120, 672, 1136)     # prairie entourée de barrières
 const EPAISSEUR := 12.0
 const FICHIER := "user://chien_berger.cfg"
+const Chargement := preload("res://scripts/chargement.gd")
 
 var _carte: Dictionary = {}        # le niveau généré (voir carte.gd)
 var _enclos := Rect2()
@@ -73,6 +74,7 @@ var _barre: ColorRect
 var _joystick: Joystick
 var _bouton_aboi: BoutonRond
 var _bouton_pause: BoutonRond
+var _bouton_musique: BoutonRond
 var _ecran: Control
 var _ecran_titre: Label
 var _ecran_texte: Label
@@ -105,7 +107,9 @@ func _ready() -> void:
 	var ecran_maj: CanvasLayer = preload("res://scripts/ecran_maj.gd").new()
 	ecran_maj.peut_afficher = func() -> bool: return not en_jeu
 	get_tree().root.add_child.call_deferred(ecran_maj)
-	_montrer_ecran("Chien Berger",
+	_sons.musique_active = _lire_reglage("musique", true)
+	_sons.lancer_musique()
+	_montrer_ecran("SheperdRun",
 		"Pose ton doigt n'importe où et glisse : un joystick apparaît sous ton doigt pour diriger le chien.\n\nLe troupeau le fuit : pousse-le dans l'enclos.\n\nOUAF ! fait détaler les moutons.\n\nRamasse les os (turbo), chasse le loup et rentre le mouton d'or (+15 s) !\n\nVersion %s" % (maj.version if maj else "?"),
 		"Jouer - niveau %d" % niveau, "jouer",
 		"Recommencer au niveau 1" if niveau > 1 else "", "niveau1")
@@ -328,6 +332,7 @@ func _demarrer() -> void:
 	get_tree().paused = false
 	en_jeu = true
 	if _temps_ecoule == 0.0:
+		_sons.sifflet()
 		_effets_air.texte(CHAMP.get_center() + Vector2(0, -60), _carte.nom, Color("fff3c4"), 46, 2.6)
 		var astuces := {
 			2: ["Nouveau : les agneaux !", "Rentre-les avec leur maman (+5 s)"],
@@ -414,6 +419,7 @@ func _process(delta: float) -> void:
 			if not m.compte:
 				m.compte = true
 				_mouton_rentre(m)
+				_sons.pop(float(dedans) / moutons.size())
 				_effets_air.coeur(m.global_position)
 				_effets_air.etincelles(m.global_position, 6)
 				if _dernier_bele > 0.12:
@@ -447,6 +453,7 @@ func _gagner() -> void:
 	_relacher_joystick()
 	queue_redraw()                   # la porte se ferme
 	_sons.victoire()
+	_sons.porte()
 	Input.vibrate_handheld(150)
 	_secousse = 0.5
 	for m in moutons:
@@ -480,6 +487,7 @@ func _gagner() -> void:
 func _perdre(dehors: int) -> void:
 	en_jeu = false
 	_relacher_joystick()
+	_sons.defaite()
 	Input.vibrate_handheld(250)
 	if _demo:
 		print("DEMO: temps écoulé, %d moutons dehors sur %d" % [dehors, moutons.size()])
@@ -515,24 +523,36 @@ func _aboyer() -> void:
 
 
 func _clic(action: String) -> void:
+	_sons.clic()
 	match action:
 		"jouer":
 			_demarrer()
 		"reprendre":
 			_cacher_ecran()
 			get_tree().paused = false
-		"suivant", "rejouer":
+		"rejouer":
 			_construire_niveau()
 			_demarrer()
+		"suivant":
+			_construire_niveau()
+			_chargement()
 		"precedent":
 			niveau = maxi(1, niveau - 1)
 			_construire_niveau()
-			_demarrer()
+			_chargement()
 		"niveau1":
 			niveau = 1
 			_sauver()
 			_construire_niveau()
-			_demarrer()
+			_chargement()
+
+
+## Petit écran de chargement (verset biblique) ; un toucher lance le niveau.
+func _chargement() -> void:
+	_ecran.hide()
+	var e := Chargement.new(niveau, _sons)
+	e.fini.connect(_demarrer)
+	add_child(e)
 
 
 # ---------------------------------------------------------------- éléments de jeu
@@ -933,7 +953,14 @@ func _input(event: InputEvent) -> void:
 			_aboyer()
 			get_viewport().set_input_as_handled()
 		elif _sur(_bouton_pause, event.position):
+			_sons.clic()
 			_pause()
+			get_viewport().set_input_as_handled()
+		elif _sur(_bouton_musique, event.position):
+			_sons.clic()
+			_bouton_musique.barre = not _sons.basculer_musique()
+			_bouton_musique.queue_redraw()
+			_ecrire_reglage("musique", _sons.musique_active)
 			get_viewport().set_input_as_handled()
 	elif event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_SPACE:
@@ -1298,6 +1325,15 @@ void fragment() {
 	_bouton_pause.offset_top = haut + 6
 	_bouton_pause.offset_bottom = haut + 78
 	racine.add_child(_bouton_pause)
+	_bouton_musique = BoutonRond.new()
+	_bouton_musique.note = true
+	_bouton_musique.couleur = Color("3d6b2b")
+	_bouton_musique.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_bouton_musique.offset_left = -84
+	_bouton_musique.offset_right = -36
+	_bouton_musique.offset_top = haut + 92
+	_bouton_musique.offset_bottom = haut + 140
+	racine.add_child(_bouton_musique)
 
 	_bouton_aboi = BoutonRond.new()
 	_bouton_aboi.texte = "OUAF !"
@@ -1438,6 +1474,7 @@ func _montrer_ecran(titre: String, texte: String, b1: String, a1: String, b2 := 
 	_ecran.show()
 	_bouton_aboi.hide()
 	_bouton_pause.hide()
+	_bouton_musique.hide()
 	_joystick.hide()
 	get_tree().paused = true
 	# petite apparition en douceur
@@ -1450,6 +1487,8 @@ func _cacher_ecran() -> void:
 	_ecran.hide()
 	_bouton_aboi.show()
 	_bouton_pause.show()
+	_bouton_musique.show()
+	_bouton_musique.barre = not _sons.musique_active
 	_joystick.show()
 
 
@@ -1476,7 +1515,21 @@ func _charger() -> int:
 
 func _sauver() -> void:
 	var c := ConfigFile.new()
+	c.load(FICHIER)
 	c.set_value("jeu", "niveau", niveau)
+	c.save(FICHIER)
+
+
+func _lire_reglage(cle: String, defaut: Variant) -> Variant:
+	var c := ConfigFile.new()
+	c.load(FICHIER)
+	return c.get_value("reglages", cle, defaut)
+
+
+func _ecrire_reglage(cle: String, valeur: Variant) -> void:
+	var c := ConfigFile.new()
+	c.load(FICHIER)
+	c.set_value("reglages", cle, valeur)
 	c.save(FICHIER)
 
 
@@ -1695,6 +1748,8 @@ class BoutonRond extends Control:
 	var texte := ""
 	var couleur := Color.ORANGE
 	var charge := 1.0          # 0..1 : remplissage du cercle de recharge
+	var note := false          # dessine une note de musique au lieu du texte
+	var barre := false         # note barrée (musique coupée)
 	var appuye := 0.0
 
 	func _ready() -> void:
@@ -1713,6 +1768,14 @@ class BoutonRond extends Control:
 		draw_circle(cc + Vector2(-r * 0.3, -r * 0.35), r * 0.25, Color(1, 1, 1, 0.18))
 		if not pret:
 			draw_arc(cc, r - 5.0, -PI / 2.0, -PI / 2.0 + TAU * charge, 48, Color(1, 1, 1, 0.9), 7.0)
+		if note:
+			var blanc := Color(1, 1, 1, 0.5 if barre else 1.0)
+			draw_circle(cc + Vector2(-r * 0.18, r * 0.28), r * 0.2, blanc)
+			draw_line(cc + Vector2(0, r * 0.28), cc + Vector2(0, -r * 0.42), blanc, 3.0)
+			draw_line(cc + Vector2(0, -r * 0.42), cc + Vector2(r * 0.3, -r * 0.2), blanc, 3.0)
+			if barre:
+				draw_line(cc + Vector2(-r * 0.5, -r * 0.5), cc + Vector2(r * 0.5, r * 0.5), Color("ff6b5b"), 4.0)
+			return
 		var police := ThemeDB.fallback_font
 		var taille := int(r * (0.36 if texte.length() > 2 else 0.6))
 		var largeur := police.get_string_size(texte, HORIZONTAL_ALIGNMENT_LEFT, -1, taille).x

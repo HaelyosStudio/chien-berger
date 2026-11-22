@@ -35,7 +35,7 @@ func _init() -> void:
 	if ProjectSettings.load_resource_pack(pck, true):
 		build = int(info.build)
 		version = str(info.get("version", version))
-		print("Chien Berger : mise à jour %s appliquée (build %d)." % [version, build])
+		print("SheperdRun : mise à jour %s appliquée (build %d)." % [version, build])
 
 
 func _ready() -> void:
