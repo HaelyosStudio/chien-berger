@@ -95,8 +95,10 @@ func _ready() -> void:
 		_demarrer()
 		return
 	var maj := get_node_or_null("/root/MiseAJour")
-	if maj:
-		maj.prete.connect(_maj_prete)
+	# écran plein des mises à jour (relance automatique) ; placé à la racine pour survivre à la relance
+	var ecran_maj: CanvasLayer = preload("res://scripts/ecran_maj.gd").new()
+	ecran_maj.peut_afficher = func() -> bool: return not en_jeu
+	get_tree().root.add_child.call_deferred(ecran_maj)
 	_montrer_ecran("Chien Berger",
 		"Pose ton doigt n'importe où et glisse : un joystick apparaît sous ton doigt pour diriger le chien.\n\nLe troupeau le fuit : pousse-le dans l'enclos.\n\nOUAF ! fait détaler les moutons.\n\nRamasse les os (turbo), chasse le loup et rentre le mouton d'or (+15 s) !\n\nVersion %s" % (maj.version if maj else "?"),
 		"Jouer - niveau %d" % niveau, "jouer",
