@@ -1,9 +1,11 @@
 ﻿# Publie une nouvelle version de Chien Berger sur GitHub (mise à jour automatique des téléphones).
 # Usage :  powershell -ExecutionPolicy Bypass -File publier.ps1 -Notes "Ce qui a changé"
+#          (option -Version 0.4.0 pour choisir le numéro ; sinon le dernier chiffre augmente : 0.3.0 -> 0.3.1)
 #          (option -SansIncrement pour republier la version actuelle telle quelle)
 # Étapes : numéro de version +1, export du paquet .pck et de l'APK, manifest.json, commit + release GitHub.
 param(
 	[string]$Notes = "Améliorations du jeu.",
+	[string]$Version = "",
 	[switch]$SansIncrement
 )
 $ErrorActionPreference = "Stop"
@@ -13,14 +15,19 @@ $godot = "D:\Dev\Godot\Godot_v4.7.2-stable_win64_console.exe"
 $depot = "HaelyosStudio/chien-berger"
 $utf8 = New-Object Text.UTF8Encoding $false
 
-# 1. Numéro de version (build entier + version affichée 1.x)
+# 1. Numéro de version (build entier qui augmente toujours + version affichée x.y.z)
 $projet = [IO.File]::ReadAllText("project.godot")
 $build = [int]([regex]::Match($projet, 'config/build=(\d+)').Groups[1].Value)
 $version = [regex]::Match($projet, 'config/version="([^"]+)"').Groups[1].Value
 if (-not $SansIncrement) {
 	$build += 1
-	$p = $version.Split(".")
-	$version = "$($p[0]).$([int]$p[1] + 1)"
+	if ($Version -ne "") {
+		$version = $Version
+	} else {
+		$p = $version.Split(".")
+		while ($p.Count -lt 3) { $p += "0" }
+		$version = "$($p[0]).$($p[1]).$([int]$p[2] + 1)"
+	}
 	$projet = [regex]::Replace($projet, 'config/build=\d+', "config/build=$build")
 	$projet = [regex]::Replace($projet, 'config/version="[^"]+"', "config/version=`"$version`"")
 	[IO.File]::WriteAllText("project.godot", $projet, $utf8)
@@ -56,5 +63,5 @@ $manifeste = [ordered]@{
 git add -A
 git commit -m "Version $version : $Notes" | Out-Null
 git push origin main
-gh release create "v$version" build/chien-berger.pck build/manifest.json build/ChienBerger.apk --repo $depot --title "Chien Berger $version" --notes $Notes
+gh release create "v$version" build/chien-berger.pck build/manifest.json build/ChienBerger.apk --repo $depot --title "Chien Berger $version" --notes $Notes --latest
 Write-Host "Publié : Chien Berger $version (build $build)."
