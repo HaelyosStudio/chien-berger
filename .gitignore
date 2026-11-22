@@ -1,0 +1,4 @@
+# Fichiers générés par Godot et exports
+.godot/
+build/
+*.tmp
