@@ -28,6 +28,7 @@ var compte := false              # déjà compté comme rentré (géré par main
 var fete := false                # saute de joie (victoire)
 var peur := 0.0                  # 0 = calme, 1 = terrifié (lu par les voisins)
 var noir := false                # mouton noir
+var dore := false               # mouton d'or : rare, plus peureux et plus rapide
 var fond := Vector2.UP           # direction de l'entrée vers le fond de l'enclos
 
 var _errance := Vector2.ZERO
@@ -92,12 +93,22 @@ func _physics_process(delta: float) -> void:
 	if chien:
 		var ecart := pos - chien.global_position
 		var dist := ecart.length()
-		if dist < PEUR_DISTANCE and dist > 0.1:
-			var p := 1.0 - dist / PEUR_DISTANCE
+		var portee := PEUR_DISTANCE * (1.3 if dore else 1.0)
+		if dist < portee and dist > 0.1:
+			var p := 1.0 - dist / portee
 			if chien.linear_velocity.length() > 160.0:
 				p *= 1.35
 			peur_directe = maxf(peur_directe, minf(p, 1.0))
 			force += ecart / dist * FORCE_PEUR * p
+
+	# 1 bis. Peur du loup : bien plus forte que celle du chien
+	if infos.get("loup_actif", false):
+		var ecart_l: Vector2 = pos - infos.loup
+		var dl := ecart_l.length()
+		if dl < 260.0 and dl > 0.1:
+			var pl := 1.0 - dl / 260.0
+			peur_directe = maxf(peur_directe, minf(pl * 1.4, 1.0))
+			force += ecart_l / dl * FORCE_PEUR * 1.3 * pl
 
 	# 2. Troupeau : se rapprocher, suivre les autres, sans se coller ; la peur est contagieuse.
 	#    Les voisins ne sont recherchés qu'une image sur deux (économie de calcul sur téléphone).
@@ -176,7 +187,7 @@ func _chercher_voisins(pos: Vector2) -> void:
 
 
 func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
-	state.linear_velocity = state.linear_velocity.limit_length(VITESSE_MAX)
+	state.linear_velocity = state.linear_velocity.limit_length(VITESSE_MAX * (1.15 if dore else 1.0))
 	# un brusque changement de vitesse = un choc : le mouton s'écrase un instant
 	if (state.linear_velocity - _v_prec).length() > 110.0:
 		_choc = 1.0
@@ -281,8 +292,10 @@ func _dessiner_patte(n: Node2D) -> void:
 func _dessiner_corps(n: Node2D) -> void:
 	var r := _r
 	var laine := Color(0.33, 0.3, 0.29) if noir else Color(0.97, 0.96, 0.92)
+	if dore:
+		laine = Color(1.0, 0.8, 0.28)
 	var laine_ombre := laine.darkened(0.2)
-	var laine_lumiere := laine.lightened(0.5) if noir else Color.WHITE
+	var laine_lumiere := laine.lightened(0.5) if (noir or dore) else Color.WHITE
 	var bouclettes: Array[Vector2] = []
 	for i in 9:
 		bouclettes.append(Vector2.from_angle(TAU * i / 9.0 + randf_range(-0.2, 0.2)) * randf_range(0.48, 0.62))

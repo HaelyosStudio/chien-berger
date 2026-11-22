@@ -6,13 +6,17 @@ const TAUX := 22050
 var _aboi: AudioStreamWAV
 var _bele: AudioStreamWAV
 var _victoire: AudioStreamWAV
+var _bonus: AudioStreamWAV
+var _ding: AudioStreamWAV
+var _grogne: AudioStreamWAV
+var _glapit: AudioStreamWAV
 var _lecteurs: Array[AudioStreamPlayer] = []
 var _suivant := 0
 
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
-	for i in 4:
+	for i in 6:
 		var l := AudioStreamPlayer.new()
 		add_child(l)
 		_lecteurs.append(l)
@@ -39,6 +43,45 @@ func _ready() -> void:
 		var f: float = notes[i]
 		return env * 0.45 * (sin(TAU * f * t) + 0.3 * sin(TAU * 2.0 * f * t)))
 
+	# Bonus ramassé : petit glissando montant
+	_bonus = _fabriquer(0.28, func(t: float, d: float) -> float:
+		var env := minf(t / 0.01, 1.0) * clampf((d - t) / 0.08, 0.0, 1.0)
+		var phase := TAU * (500.0 * t + 1400.0 * t * t / (2.0 * d))
+		return env * 0.4 * (sin(phase) + 0.3 * sin(2.0 * phase)))
+
+	# « Ding » cristallin (étoiles, combos : la hauteur change avec pitch_scale)
+	_ding = _fabriquer(0.5, func(t: float, _d: float) -> float:
+		var env := minf(t / 0.005, 1.0) * exp(-t * 7.0)
+		return env * 0.4 * (sin(TAU * 880.0 * t) + 0.4 * sin(TAU * 1760.0 * t) + 0.2 * sin(TAU * 2640.0 * t)))
+
+	# Grognement du loup : grave et rugueux
+	_grogne = _fabriquer(0.7, func(t: float, d: float) -> float:
+		var env := minf(t / 0.08, 1.0) * clampf((d - t) / 0.2, 0.0, 1.0)
+		var f := 85.0 + 10.0 * sin(TAU * 7.0 * t)
+		return env * (0.5 * clampf(sin(TAU * f * t) * 3.0, -1.0, 1.0) + 0.35 * randf_range(-1.0, 1.0)) * 0.6)
+
+	# Glapissement du loup chassé : aigu qui descend
+	_glapit = _fabriquer(0.3, func(t: float, d: float) -> float:
+		var env := minf(t / 0.01, 1.0) * clampf((d - t) / 0.1, 0.0, 1.0)
+		var phase := TAU * (1100.0 * t + (500.0 - 1100.0) * t * t / (2.0 * d))
+		return env * 0.45 * (sin(phase) + 0.25 * randf_range(-1.0, 1.0)))
+
+
+func bonus() -> void:
+	_jouer(_bonus, 1.0)
+
+
+## Ding dont la hauteur monte avec n (combo, étoiles).
+func ding(n: int) -> void:
+	_jouer(_ding, pow(2.0, minf(n, 12) / 12.0 * 1.0))
+
+
+func grogne() -> void:
+	_jouer(_grogne, randf_range(0.9, 1.05))
+
+
+func glapit() -> void:
+	_jouer(_glapit, randf_range(0.95, 1.1))
 
 func aboie() -> void:
 	_jouer(_aboi, randf_range(0.92, 1.08))

@@ -15,6 +15,8 @@ var recharge := 0.0
 var _regard := Vector2.UP
 var _pas := 0.0
 var _onde := 0.0
+var _queue := 0.0              # phase du remuement de la queue
+var turbo := 0.0               # secondes de turbo restantes (os ramassé)
 
 
 func _ready() -> void:
@@ -38,9 +40,10 @@ func _physics_process(delta: float) -> void:
 	var dir := Input.get_vector("ui_left", "ui_right", "ui_up", "ui_down")
 	if dir == Vector2.ZERO:
 		dir = direction.limit_length(1.0)
-	apply_central_force(dir * FORCE)
+	apply_central_force(dir * FORCE * (1.5 if turbo > 0.0 else 1.0))
 
-	recharge = maxf(0.0, recharge - delta)
+	turbo = maxf(0.0, turbo - delta)
+	recharge = maxf(0.0, recharge - delta * (4.0 if turbo > 0.0 else 1.0))
 	_onde = maxf(0.0, _onde - delta)
 	var v := linear_velocity
 	if v.length() > 20.0:
@@ -50,11 +53,13 @@ func _physics_process(delta: float) -> void:
 	elif dir.length() > 0.1:
 		_regard = _regard.lerp(dir.normalized(), 0.2).normalized()
 	_pas += v.length() * delta
+	# queue : remue vite et fort à l'arrêt, se tend presque droite en pleine course
+	_queue += delta * lerpf(13.0, 5.0, minf(v.length() / VITESSE_MAX, 1.0))
 	queue_redraw()
 
 
 func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
-	state.linear_velocity = state.linear_velocity.limit_length(VITESSE_MAX)
+	state.linear_velocity = state.linear_velocity.limit_length(VITESSE_MAX * (1.35 if turbo > 0.0 else 1.0))
 
 
 ## 0 juste après un aboiement, 1 quand il est de nouveau prêt.
@@ -89,6 +94,9 @@ func _draw() -> void:
 	var vit := linear_velocity.length()
 	var saut := absf(sin(_pas * 0.06)) * minf(vit / 400.0, 1.0) * 5.0
 	draw_circle(Vector2(3, 6), RAYON + 3.0 - saut * 0.3, Color(0, 0, 0, 0.24))     # ombre
+	if turbo > 0.0:     # halo doré du turbo (clignote à la fin)
+		if turbo > 1.5 or int(turbo * 8.0) % 2 == 0:
+			draw_circle(Vector2.ZERO, RAYON + 10.0 + sin(_pas * 0.05) * 2.0, Color(1.0, 0.85, 0.3, 0.35))
 
 	# Le reste est dessiné tourné dans le sens de la course (+x = devant), étiré à pleine vitesse
 	var etire := minf(vit / VITESSE_MAX, 1.0) * 0.15
@@ -100,8 +108,8 @@ func _draw() -> void:
 	for patte in [Vector2(8 + p, 9), Vector2(8 - p, -9), Vector2(-10 - p, 9), Vector2(-10 + p, -9)]:
 		draw_circle(patte, 4.0, noir)
 		draw_circle(patte + Vector2(2, 0), 2.2, blanc)
-	# queue qui remue (plus vite quand il court)
-	var remue := sin(Time.get_ticks_msec() * (0.02 + vit * 0.00005)) * 0.6
+	# queue qui remue (beaucoup à l'arrêt, peu en courant)
+	var remue := sin(_queue) * lerpf(0.6, 0.12, minf(vit / VITESSE_MAX, 1.0))
 	var bout := Vector2(-17, 0) + Vector2.from_angle(PI + remue) * 15.0
 	draw_line(Vector2(-15, 0), bout, noir, 6.0)
 	draw_circle(bout, 3.5, blanc)

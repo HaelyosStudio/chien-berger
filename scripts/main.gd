@@ -8,6 +8,7 @@ const Mouton := preload("res://scripts/mouton.gd")
 const Chien := preload("res://scripts/chien.gd")
 const Sons := preload("res://scripts/sons.gd")
 const Effets := preload("res://scripts/effets.gd")
+const Loup := preload("res://scripts/loup.gd")
 
 const Carte := preload("res://scripts/carte.gd")
 
@@ -44,6 +45,19 @@ var _graine := 0
 var _demo := false
 var _mesures := Vector3.ZERO
 var _sons: Node
+
+# Éléments de jeu : combos, mouton d'or, os (turbo), loup, étoiles
+var _combo := 0
+var _dernier_entre := 99.0
+var _dernier_ding := 0.0
+var _os: Os = null
+var _prochain_os := 12.0
+var _loup: Loup = null
+var _loup_prevu := false
+var _prochain_loup := 20.0
+var _loups_restants := 0
+var _rng_jeu := RandomNumberGenerator.new()
+var _etoiles: Etoiles
 
 # Interface
 var _lbl_niveau: Label
@@ -84,7 +98,7 @@ func _ready() -> void:
 	if maj:
 		maj.prete.connect(_maj_prete)
 	_montrer_ecran("Chien Berger",
-		"Pose ton doigt n'importe où et glisse : un joystick apparaît sous ton doigt pour diriger le chien.\n\nLe troupeau le fuit : pousse-le dans l'enclos.\n\nOUAF ! fait détaler les moutons.\n\nChaque niveau est une nouvelle prairie.\n\nVersion %s" % (maj.version if maj else "?"),
+		"Pose ton doigt n'importe où et glisse : un joystick apparaît sous ton doigt pour diriger le chien.\n\nLe troupeau le fuit : pousse-le dans l'enclos.\n\nOUAF ! fait détaler les moutons.\n\nRamasse les os (turbo), chasse le loup et rentre le mouton d'or (+15 s) !\n\nVersion %s" % (maj.version if maj else "?"),
 		"Jouer - niveau %d" % niveau, "jouer",
 		"Recommencer au niveau 1" if niveau > 1 else "", "niveau1")
 
@@ -218,8 +232,10 @@ func _construire_niveau() -> void:
 	moutons = []
 	_grille.clear()
 	_infos.clear()
+	var index_dore: int = rng.randi() % c.positions.size() if niveau >= 2 else -1
 	for p in c.positions:
 		var m := Mouton.new()
+		m.dore = moutons.size() == index_dore
 		m.position = p
 		if "--victoire" in OS.get_cmdline_user_args():     # test : troupeau déjà dans l'enclos
 			m.position = Vector2(rng.randf_range(_enclos.position.x + 30, _enclos.end.x - 30), rng.randf_range(_enclos.position.y + 30, _enclos.end.y - 30))
@@ -248,6 +264,16 @@ func _construire_niveau() -> void:
 	_gagne = false
 	_relacher_joystick()
 	_joystick.aide = niveau <= 2
+	_rng_jeu.seed = c.graine + 99
+	_combo = 0
+	_dernier_entre = 99.0
+	_os = null
+	_prochain_os = 12.0
+	_loup = null
+	_loup_prevu = niveau >= 4 and _rng_jeu.randf() < 0.7
+	_prochain_loup = _rng_jeu.randf_range(15.0, 28.0)
+	_loups_restants = 1 if niveau < 8 else 2
+	_infos.loup_actif = false
 	queue_redraw()
 	_barre.anchor_right = 0.0
 	_maj_hud(0)
@@ -318,12 +344,17 @@ func _process(delta: float) -> void:
 	_temps_restant -= delta
 	_temps_ecoule += delta
 	_dernier_bele += delta
+	_dernier_entre += delta
+	_dernier_ding += delta
+	_gerer_os(delta)
+	_gerer_loup(delta)
 	var dedans := 0
 	for m in moutons:
 		if m.dans_enclos:
 			dedans += 1
 			if not m.compte:
 				m.compte = true
+				_mouton_rentre(m)
 				_effets_air.coeur(m.global_position)
 				_effets_air.etincelles(m.global_position, 6)
 				if _dernier_bele > 0.12:
@@ -351,6 +382,8 @@ func _process(delta: float) -> void:
 
 func _gagner() -> void:
 	en_jeu = false
+	if is_instance_valid(_loup):
+		_loup.chasser()
 	_gagne = true
 	_relacher_joystick()
 	queue_redraw()                   # la porte se ferme
@@ -377,10 +410,12 @@ func _gagner() -> void:
 		get_tree().quit()
 		return
 	await get_tree().create_timer(2.0).timeout
-	var bilan := "Chien d'or : quel berger !" if reste > 0.5 else ("Beau travail !" if reste > 0.25 else "Ouf, juste à temps !")
+	var nb_etoiles := 1 + (1 if reste >= 0.3 else 0) + (1 if reste >= 0.55 else 0)
+	var bilan: String = ["Ouf, juste à temps !", "Beau travail !", "Chien d'or : quel berger !"][nb_etoiles - 1]
 	_montrer_ecran("Bravo !",
 		"%s : les %d moutons sont à l'abri en %s.\n\n%s" % [nom, nb, _format_temps(temps), bilan],
 		"Niveau %d : nouvelle prairie" % niveau, "suivant", "Rejouer ce niveau", "precedent")
+	_etoiles.montrer(nb_etoiles)
 
 
 func _perdre(dehors: int) -> void:
@@ -410,6 +445,8 @@ func _aboyer() -> void:
 	if not en_jeu:
 		return
 	if chien.aboyer(moutons):
+		if is_instance_valid(_loup) and _loup.global_position.distance_to(chien.global_position) < chien.PORTEE_ABOI:
+			_loup.chasser()
 		_sons.aboie()
 		Input.vibrate_handheld(50)
 		_bouton_aboi.appuye = 0.15
@@ -437,6 +474,122 @@ func _clic(action: String) -> void:
 			_sauver()
 			_construire_niveau()
 			_demarrer()
+
+
+# ---------------------------------------------------------------- éléments de jeu
+
+## Un mouton vient de rentrer : combo si les entrées s'enchaînent, bonus du mouton d'or.
+func _mouton_rentre(m: Node2D) -> void:
+	_combo = _combo + 1 if _dernier_entre < 1.6 else 1
+	_dernier_entre = 0.0
+	var p: Vector2 = m.global_position
+	if _combo >= 2:
+		var couleurs := [Color("ffffff"), Color("fff3a0"), Color("ffd23f"), Color("ff9f43"), Color("ff5d7a"), Color("b388ff")]
+		var c: Color = couleurs[mini(_combo / 3, couleurs.size() - 1)]
+		_effets_air.texte(p + Vector2(0, -30), "x%d" % _combo, c, 24 + mini(_combo, 12) * 2, 0.8)
+		if _dernier_ding > 0.07:
+			_sons.ding(mini(_combo, 12))
+			_dernier_ding = 0.0
+		if _combo % 10 == 0:
+			_effets_air.confettis(p, 25)
+			_secousse = 0.3
+	if m.dore:
+		# le mouton d'or rapporte du temps
+		_temps_restant += 15.0
+		_effets_air.etincelles(p, 18, Color("ffd23f"))
+		_effets_air.texte(p + Vector2(0, -60), "Mouton d'or ! +15 s", Color("ffd23f"), 34, 1.6)
+		_sons.bonus()
+		Input.vibrate_handheld(60)
+
+
+## Une case libre de la carte, au hasard, qui respecte une condition.
+func _case_au_hasard(condition: Callable) -> Variant:
+	var dist: PackedInt32Array = _carte.grille_dist
+	var cols: int = _carte.grille_cols
+	for essai in 200:
+		var k := _rng_jeu.randi() % dist.size()
+		if dist[k] < 0:
+			continue
+		var p: Vector2 = CHAMP.position + Vector2((k % cols) + 0.5, (k / cols) + 0.5) * _carte.grille_case
+		if condition.call(p):
+			return p
+	return null
+
+
+## Os : apparaît de temps en temps ; ramassé, il donne au chien 6 secondes de turbo.
+func _gerer_os(delta: float) -> void:
+	# scintillement du mouton d'or (pour qu'on le repère)
+	for m in moutons:
+		if m.dore and not m.dans_enclos and randf() < delta * 3.0:
+			_effets_air.etincelles(m.global_position + Vector2(randf_range(-8, 8), randf_range(-8, 8)), 2, Color("fff3a0"))
+	if not is_instance_valid(_os):
+		_prochain_os -= delta
+		if _prochain_os <= 0.0:
+			var p: Variant = _case_au_hasard(func(q: Vector2) -> bool:
+				return q.distance_to(chien.global_position) > 220.0 and not _enclos.grow(40).has_point(q))
+			if p != null:
+				_os = Os.new()
+				_os.position = p
+				_monde.add_child(_os)
+			_prochain_os = _rng_jeu.randf_range(18.0, 28.0)
+	elif chien.global_position.distance_to(_os.position) < 36.0:
+		chien.turbo = 6.0
+		chien.recharge = 0.0
+		_effets_air.etincelles(_os.position, 14, Color("ffd23f"))
+		_effets_air.texte(_os.position + Vector2(0, -30), "TURBO !", Color("ffd23f"), 38, 1.2)
+		_sons.bonus()
+		Input.vibrate_handheld(40)
+		_os.queue_free()
+		_os = null
+
+
+## Loup : sort d'un bord du pré, disperse le troupeau ; le chien le chasse.
+func _gerer_loup(delta: float) -> void:
+	if is_instance_valid(_loup):
+		_loup.cible = _infos.get("dehors", _loup.global_position)
+		if not _loup.en_fuite and chien.global_position.distance_to(_loup.global_position) < 58.0:
+			_loup.chasser()
+		_infos.loup = _loup.global_position
+		_infos.loup_actif = _loup.actif()
+		return
+	_infos.loup_actif = false
+	if not _loup_prevu or _loups_restants <= 0:
+		return
+	_prochain_loup -= delta
+	if _prochain_loup > 0.0:
+		return
+	var bord := CHAMP.grow(-75.0)
+	var p: Variant = _case_au_hasard(func(q: Vector2) -> bool:
+		return not bord.has_point(q) and q.distance_to(chien.global_position) > 380.0 and not _enclos.grow(120).has_point(q))
+	if p == null:
+		_prochain_loup = 5.0
+		return
+	_loups_restants -= 1
+	_loup = Loup.new()
+	_loup.position = p
+	# il s'enfuira par le bord le plus proche
+	var s: Vector2 = p
+	var dx := minf(p.x - CHAMP.position.x, CHAMP.end.x - p.x)
+	var dy := minf(p.y - CHAMP.position.y, CHAMP.end.y - p.y)
+	if dx < dy:
+		s.x = CHAMP.position.x - 60.0 if p.x - CHAMP.position.x < CHAMP.end.x - p.x else CHAMP.end.x + 60.0
+	else:
+		s.y = CHAMP.position.y - 60.0 if p.y - CHAMP.position.y < CHAMP.end.y - p.y else CHAMP.end.y + 60.0
+	_loup.sortie = s
+	_loup.chasse.connect(_loup_chasse)
+	_monde.add_child(_loup)
+	_monde.move_child(_loup, chien.get_index())      # sous le chien, au-dessus des moutons
+	_effets_air.texte(p + Vector2(0, -40), "Un loup !", Color("ff6b5b"), 40, 1.8)
+	_sons.grogne()
+	_secousse = 0.35
+	Input.vibrate_handheld(120)
+
+
+func _loup_chasse() -> void:
+	_sons.glapit()
+	_effets_air.texte(_loup.global_position + Vector2(0, -36), "Ouste !", Color("ffffff"), 38, 1.2)
+	_effets_sol.herbe(_loup.global_position, 10)
+	_prochain_loup = _rng_jeu.randf_range(20.0, 35.0)
 
 
 func _rebond(lbl: Control) -> void:
@@ -1075,6 +1228,9 @@ void fragment() {
 	_ecran_texte.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_ecran_texte.custom_minimum_size = Vector2(540, 0)
 	boite.add_child(_ecran_texte)
+	_etoiles = Etoiles.new()
+	_etoiles.son = func(i: int) -> void: _sons.ding(4 + i * 4)
+	boite.add_child(_etoiles)
 	_ecran_b1 = _bouton(Color("4f9a35"))
 	_ecran_b2 = _bouton(Color("8a7a66"))
 	boite.add_child(_ecran_b1)
@@ -1161,6 +1317,7 @@ func _montrer_ecran(titre: String, texte: String, b1: String, a1: String, b2 := 
 	_ecran_b2.text = b2
 	_action2 = a2
 	_ecran_b2.visible = b2 != ""
+	_etoiles.visible = false
 	_ecran.show()
 	_bouton_aboi.hide()
 	_bouton_pause.hide()
@@ -1343,6 +1500,77 @@ class Joystick extends Control:
 		draw_circle(c + b, 44, Color(1, 1, 1, 0.8 * a))
 		draw_circle(c + b, 34, Color(0.95, 0.95, 0.9, 0.9 * a))
 		draw_circle(c + b + Vector2(-10, -12), 10, Color(1, 1, 1, a))
+
+
+## Os à ramasser (turbo) : flotte doucement et brille ; disparaît au bout de 15 secondes.
+class Os extends Node2D:
+	var _t := 0.0
+
+	func _process(delta: float) -> void:
+		_t += delta
+		if _t > 15.0:
+			queue_free()
+		queue_redraw()
+
+	func _draw() -> void:
+		var a := 1.0 if _t < 13.0 else (0.5 + 0.5 * sin(_t * 20.0))
+		var h := sin(_t * 3.0) * 3.0
+		draw_circle(Vector2(2, 9), 13.0, Color(0, 0, 0, 0.18 * a))
+		draw_circle(Vector2(0, h), 24.0 + sin(_t * 5.0) * 3.0, Color(1, 0.9, 0.4, 0.22 * a))
+		draw_set_transform(Vector2(0, h), 0.5, Vector2.ONE)
+		var os := Color(0.98, 0.95, 0.86, a)
+		var ombre := Color(0.8, 0.75, 0.62, a)
+		draw_rect(Rect2(-11, -4, 22, 8), ombre)
+		draw_rect(Rect2(-11, -4, 22, 6), os)
+		for x in [-12.0, 12.0]:
+			for y in [-4.0, 4.0]:
+				draw_circle(Vector2(x, y), 5.0, ombre)
+				draw_circle(Vector2(x, y - 1), 4.5, os)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+## Étoiles de fin de niveau : apparaissent une à une avec un « ding ».
+class Etoiles extends Control:
+	var son: Callable
+	var _echelles := [0.0, 0.0, 0.0]
+	var _n := 0
+
+	func _ready() -> void:
+		custom_minimum_size = Vector2(320, 96)
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	func montrer(n: int) -> void:
+		_n = n
+		_echelles = [0.0, 0.0, 0.0]
+		visible = true
+		queue_redraw()
+		var t := create_tween()
+		t.tween_interval(0.35)
+		for i in n:
+			t.tween_method(func(v: float) -> void:
+				_echelles[i] = v
+				queue_redraw(), 0.0, 1.0, 0.28).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+			t.tween_callback(func() -> void:
+				if son.is_valid():
+					son.call(i))
+
+	func _etoile(c: Vector2, r: float) -> PackedVector2Array:
+		var pts := PackedVector2Array()
+		for k in 10:
+			var a := -PI / 2.0 + k * PI / 5.0
+			pts.append(c + Vector2.from_angle(a) * (r if k % 2 == 0 else r * 0.45))
+		return pts
+
+	func _draw() -> void:
+		for i in 3:
+			var c := Vector2(size.x / 2.0 + (i - 1) * 100.0, size.y / 2.0 + (0.0 if i == 1 else 8.0))
+			var r := 40.0 if i == 1 else 34.0
+			draw_colored_polygon(_etoile(c + Vector2(0, 4), r), Color(0, 0, 0, 0.15))
+			draw_colored_polygon(_etoile(c, r), Color("d8cfbd"))
+			if i < _n and _echelles[i] > 0.01:
+				var s: float = _echelles[i]
+				draw_colored_polygon(_etoile(c, r * s), Color("ffc93c"))
+				draw_colored_polygon(_etoile(c + Vector2(-r * 0.12, -r * 0.15) * s, r * 0.45 * s), Color("ffe68a"))
 
 
 ## Bouton rond dessiné (le toucher est géré par main.gd pour permettre le multi-doigts).
