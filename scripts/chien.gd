@@ -1,4 +1,5 @@
 extends RigidBody2D
+const Rond := preload("res://scripts/rond.gd")
 ## Le chien berger : un corps physique plus lourd que les moutons (il peut les bousculer).
 ## Il suit la direction du joystick tactile (ou les flèches du clavier) et peut aboyer.
 
@@ -92,16 +93,16 @@ func _draw() -> void:
 	if _onde > 0.0:
 		var k := 1.0 - _onde / DUREE_ONDE
 		var e := 1.0 - pow(1.0 - k, 3.0)
-		draw_circle(Vector2.ZERO, PORTEE_ABOI * e, Color(1, 0.9, 0.6, 0.12 * (1.0 - k)))
+		Rond.cercle(self, Vector2.ZERO, PORTEE_ABOI * e, Color(1, 0.9, 0.6, 0.12 * (1.0 - k)))
 		draw_arc(Vector2.ZERO, PORTEE_ABOI * e, 0.0, TAU, 72, Color(1, 1, 1, 0.85 * (1.0 - k)), 7.0 * (1.0 - k) + 1.0)
 		draw_arc(Vector2.ZERO, PORTEE_ABOI * e * 0.7, 0.0, TAU, 56, Color(1, 1, 1, 0.5 * (1.0 - k)), 4.0)
 
 	var vit := linear_velocity.length()
 	var saut := absf(sin(_pas * 0.06)) * minf(vit / 400.0, 1.0) * 5.0
-	draw_circle(Vector2(3, 6), RAYON + 3.0 - saut * 0.3, Color(0, 0, 0, 0.24))     # ombre
+	Rond.cercle(self, Vector2(3, 6), RAYON + 3.0 - saut * 0.3, Color(0, 0, 0, 0.24))     # ombre
 	if turbo > 0.0:     # halo doré du turbo (clignote à la fin)
 		if turbo > 1.5 or int(turbo * 8.0) % 2 == 0:
-			draw_circle(Vector2.ZERO, RAYON + 10.0 + sin(_pas * 0.05) * 2.0, Color(1.0, 0.85, 0.3, 0.35))
+			Rond.cercle(self, Vector2.ZERO, RAYON + 10.0 + sin(_pas * 0.05) * 2.0, Color(1.0, 0.85, 0.3, 0.35))
 
 	# Le reste est dessiné tourné dans le sens de la course (+x = devant), étiré à pleine vitesse
 	var etire := minf(vit / VITESSE_MAX, 1.0) * 0.15
@@ -111,32 +112,32 @@ func _draw() -> void:
 	var p := sin(_pas * 0.1) * 5.0
 	# pattes
 	for patte in [Vector2(8 + p, 9), Vector2(8 - p, -9), Vector2(-10 - p, 9), Vector2(-10 + p, -9)]:
-		draw_circle(patte, 4.0, noir)
-		draw_circle(patte + Vector2(2, 0), 2.2, blanc)
+		Rond.cercle(self, patte, 4.0, noir)
+		Rond.cercle(self, patte + Vector2(2, 0), 2.2, blanc)
 	# queue qui remue (beaucoup à l'arrêt, peu en courant)
 	var remue := sin(_queue) * lerpf(0.6, 0.12, minf(vit / VITESSE_MAX, 1.0))
 	var bout := Vector2(-17, 0) + Vector2.from_angle(PI + remue) * 15.0
 	draw_line(Vector2(-15, 0), bout, noir, 6.0)
-	draw_circle(bout, 3.5, blanc)
+	Rond.cercle(self, bout, 3.5, blanc)
 	# corps et collier blanc (façon border collie)
-	draw_circle(Vector2(-7, 0), 11.0, noir)
-	draw_circle(Vector2(4, 0), 11.0, noir)
-	draw_circle(Vector2(9, 0), 8.0, blanc)
-	draw_circle(Vector2(-4, -4), 4.0, Color(1, 1, 1, 0.08))
+	Rond.cercle(self, Vector2(-7, 0), 11.0, noir)
+	Rond.cercle(self, Vector2(4, 0), 11.0, noir)
+	Rond.cercle(self, Vector2(9, 0), 8.0, blanc)
+	Rond.cercle(self, Vector2(-4, -4), 4.0, Color(1, 1, 1, 0.08))
 	# langue qui pend quand il court
 	if vit > 200.0:
-		draw_circle(Vector2(23, 5 + sin(_pas * 0.2)), 3.0, Color("e8657a"))
+		Rond.cercle(self, Vector2(23, 5 + sin(_pas * 0.2)), 3.0, Color("e8657a"))
 	# tête, oreilles qui battent, museau
 	var o := sin(_pas * 0.12) * 2.0 if vit > 50.0 else 0.0
 	draw_colored_polygon(PackedVector2Array([Vector2(10, -5), Vector2(12 - o, -14), Vector2(17, -5)]), noir)
 	draw_colored_polygon(PackedVector2Array([Vector2(10, 5), Vector2(12 + o, 14), Vector2(17, 5)]), noir)
-	draw_circle(Vector2(15, 0), 9.0, noir)
-	draw_circle(Vector2(21, 0), 5.5, blanc)
-	draw_circle(Vector2(25.5, 0), 2.4, noir)
-	draw_circle(Vector2(17, -4), 1.7, Color.WHITE)
-	draw_circle(Vector2(17, 4), 1.7, Color.WHITE)
+	Rond.cercle(self, Vector2(15, 0), 9.0, noir)
+	Rond.cercle(self, Vector2(21, 0), 5.5, blanc)
+	Rond.cercle(self, Vector2(25.5, 0), 2.4, noir)
+	Rond.cercle(self, Vector2(17, -4), 1.7, Color.WHITE)
+	Rond.cercle(self, Vector2(17, 4), 1.7, Color.WHITE)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	if etourdi > 0.0:      # petites étoiles qui tournent au-dessus de la tête
 		for i in 3:
 			var a := etourdi * 9.0 + TAU * i / 3.0
-			draw_circle(Vector2(cos(a) * 14.0, -24.0 + sin(a) * 5.0), 3.5, Color(1.0, 0.85, 0.3))
+			Rond.cercle(self, Vector2(cos(a) * 14.0, -24.0 + sin(a) * 5.0), 3.5, Color(1.0, 0.85, 0.3))

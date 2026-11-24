@@ -1,4 +1,5 @@
 extends CanvasLayer
+const Rond := preload("res://scripts/rond.gd")
 ## Écran de chargement entre deux niveaux : un verset biblique tiré au hasard (Louis Segond 1910),
 ## une barre qui se remplit avec un mouton qui trotte dessus, puis « Touche l'écran pour continuer ».
 ## Toucher l'écran (une fois la barre pleine) lance le niveau.
@@ -142,7 +143,7 @@ class Fond extends Control:
 		var t := Time.get_ticks_msec() / 1000.0
 		for e in _etoiles:
 			var a := 0.35 + 0.35 * sin(t * 1.5 + e.z)
-			draw_circle(Vector2(e.x * s.x, e.y * s.y), 1.6 + e.z * 0.15, Color(1, 1, 0.9, a))
+			Rond.cercle(self, Vector2(e.x * s.x, e.y * s.y), 1.6 + e.z * 0.15, Color(1, 1, 0.9, a))
 		# deux collines
 		var c1 := PackedVector2Array([Vector2(0, s.y)])
 		var c2 := PackedVector2Array([Vector2(0, s.y)])
@@ -174,6 +175,6 @@ class Barre extends Control:
 		for dx in [-8.0, 8.0]:
 			draw_line(p + Vector2(dx, 6), p + Vector2(dx, 14 + saut * 0.5), Color("2a2420"), 4.0)
 		for o in [Vector2(-8, -3), Vector2(0, -7), Vector2(8, -3), Vector2(-5, 4), Vector2(5, 4)]:
-			draw_circle(p + o, 9.0, Color("f7f4ea"))
-		draw_circle(p + Vector2(15, -2), 6.5, Color("2a2420"))
-		draw_circle(p + Vector2(17, -4), 1.6, Color.WHITE)
+			Rond.cercle(self, p + o, 9.0, Color("f7f4ea"))
+		Rond.cercle(self, p + Vector2(15, -2), 6.5, Color("2a2420"))
+		Rond.cercle(self, p + Vector2(17, -4), 1.6, Color.WHITE)

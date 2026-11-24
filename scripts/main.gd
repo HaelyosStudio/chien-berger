@@ -1,4 +1,5 @@
 extends Node2D
+const Rond := preload("res://scripts/rond.gd")
 ## SheperdRun : guide tout le troupeau dans l'enclos avant la fin du temps.
 ## Tout est construit par le code (aucune image) pour rester léger sur téléphone.
 ## Commandes : joystick flottant (pose le doigt n'importe où et glisse) ; bouton OUAF = aboyer.
@@ -75,6 +76,8 @@ var _joystick: Joystick
 var _bouton_aboi: BoutonRond
 var _bouton_pause: BoutonRond
 var _bouton_musique: BoutonRond
+var _toile: SubViewport           # image de la carte, peinte une fois par niveau
+var _ci: CanvasItem               # où dessinent les fonctions de la carte
 var _ecran: Control
 var _ecran_titre: Label
 var _ecran_texte: Label
@@ -321,7 +324,7 @@ func _construire_niveau() -> void:
 	_prochain_vent = _rng_jeu.randf_range(14.0, 22.0) if niveau >= 6 else INF
 	_rafale = Rafale.new()
 	_monde.add_child(_rafale)
-	queue_redraw()
+	_repeindre()
 	_barre.anchor_right = 0.0
 	_maj_hud(0)
 
@@ -451,7 +454,7 @@ func _gagner() -> void:
 		_loup.chasser()
 	_gagne = true
 	_relacher_joystick()
-	queue_redraw()                   # la porte se ferme
+	_repeindre()                     # la porte se ferme
 	_sons.victoire()
 	_sons.porte()
 	Input.vibrate_handheld(150)
@@ -1015,8 +1018,45 @@ func _notification(what: int) -> void:
 
 # ---------------------------------------------------------------- dessin du décor
 
+## Fond hors de la prairie, puis l'image de la carte (peinte une seule fois par niveau).
+## Dessiner la carte à chaque image coûtait des milliers d'appels à la carte graphique.
 func _draw() -> void:
-	draw_rect(Rect2(-2000, -2000, 4720, 5280), Color("4a8237"))
+	_ci = self
+	_ci.draw_rect(Rect2(-2000, -2000, 4720, 5280), Color("4a8237"))
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 12345
+	for i in 40:
+		var p := Vector2(rng.randf_range(-300, 1020), rng.randf_range(-400, 1700))
+		if CHAMP.grow(40).has_point(p):
+			continue
+		Rond.cercle(_ci, p + Vector2(6, 10), 40, Color(0, 0, 0, 0.18))
+		Rond.cercle(_ci, p, 40, Color("2f6a2a"))
+		Rond.cercle(_ci, p + Vector2(-10, -12), 26, Color("3f8236"))
+	if _toile:
+		draw_texture(_toile.get_texture(), Vector2.ZERO)
+
+
+## Peint la carte dans l'image hors écran (appelé à chaque nouveau niveau et quand la porte se ferme).
+func _repeindre() -> void:
+	if _toile == null:
+		_toile = SubViewport.new()
+		_toile.size = Vector2i(TAILLE)
+		_toile.disable_3d = true
+		_toile.transparent_bg = false
+		_toile.render_target_clear_mode = SubViewport.CLEAR_MODE_ALWAYS
+		var peintre := Peintre.new()
+		peintre.dessin = func(n: Node2D) -> void:
+			_ci = n
+			_peindre_carte()
+		_toile.add_child(peintre)
+		add_child(_toile)
+	_toile.get_child(0).queue_redraw()
+	_toile.render_target_update_mode = SubViewport.UPDATE_ONCE
+	queue_redraw()
+
+
+func _peindre_carte() -> void:
+	_ci.draw_rect(Rect2(-2000, -2000, 4720, 5280), Color("4a8237"))
 	# arbres hors de la prairie (bords visibles sur les écrans allongés)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 12345
@@ -1024,22 +1064,22 @@ func _draw() -> void:
 		var p := Vector2(rng.randf_range(-300, 1020), rng.randf_range(-400, 1700))
 		if CHAMP.grow(40).has_point(p):
 			continue
-		draw_circle(p + Vector2(6, 10), 40, Color(0, 0, 0, 0.18))
-		draw_circle(p, 40, Color("2f6a2a"))
-		draw_circle(p + Vector2(-10, -12), 26, Color("3f8236"))
+		Rond.cercle(_ci, p + Vector2(6, 10), 40, Color(0, 0, 0, 0.18))
+		Rond.cercle(_ci, p, 40, Color("2f6a2a"))
+		Rond.cercle(_ci, p + Vector2(-10, -12), 26, Color("3f8236"))
 
-	draw_rect(CHAMP, Color("7cbf55"))
+	_ci.draw_rect(CHAMP, Color("7cbf55"))
 	rng.seed = _graine
 	# grandes taches d'herbe plus sombres ou plus claires
 	for i in 16:
 		var p := Vector2(rng.randf_range(CHAMP.position.x, CHAMP.end.x), rng.randf_range(CHAMP.position.y, CHAMP.end.y))
 		var c := Color(0.0, 0.12, 0.0, 0.07) if i % 2 == 0 else Color(1.0, 1.0, 0.6, 0.07)
 		var r := rng.randf_range(50, 110)
-		draw_circle(p, r, c)
-		draw_circle(p + Vector2(r * 0.5, r * 0.2), r * 0.7, c)
+		Rond.cercle(_ci, p, r, c)
+		Rond.cercle(_ci, p + Vector2(r * 0.5, r * 0.2), r * 0.7, c)
 	for i in int(CHAMP.size.y / 80.0) + 1:
 		var y := CHAMP.position.y + i * 80.0
-		draw_rect(Rect2(CHAMP.position.x, y, CHAMP.size.x, minf(40.0, CHAMP.end.y - y)), Color(1, 1, 1, 0.04))
+		_ci.draw_rect(Rect2(CHAMP.position.x, y, CHAMP.size.x, minf(40.0, CHAMP.end.y - y)), Color(1, 1, 1, 0.04))
 
 	if _carte.is_empty():
 		return
@@ -1059,7 +1099,7 @@ func _draw() -> void:
 			var t := reste
 			while t < l:
 				var p := a.lerp(b, t / l)
-				draw_circle(p, largeur + sin(p.x * 0.05 + p.y * 0.03) * 3.0, couleur)
+				Rond.cercle(_ci, p, largeur + sin(p.x * 0.05 + p.y * 0.03) * 3.0, couleur)
 				t += 9.0
 			reste = t - l
 
@@ -1071,62 +1111,62 @@ func _draw() -> void:
 			continue
 		if i % 3 != 0:
 			var herbe := Color("5f9e43") if i % 2 == 0 else Color("6aab4b")
-			draw_line(p, p + Vector2(-3, -7), herbe, 2.0)
-			draw_line(p, p + Vector2(0, -9), herbe, 2.0)
-			draw_line(p, p + Vector2(3, -7), herbe, 2.0)
+			_ci.draw_line(p, p + Vector2(-3, -7), herbe, 2.0)
+			_ci.draw_line(p, p + Vector2(0, -9), herbe, 2.0)
+			_ci.draw_line(p, p + Vector2(3, -7), herbe, 2.0)
 		else:
 			for k in 5:
-				draw_circle(p + Vector2.from_angle(TAU * k / 5.0) * 3.0, 2.4, couleurs[i % couleurs.size()])
-			draw_circle(p, 1.8, Color("f4c542"))
+				Rond.cercle(_ci, p + Vector2.from_angle(TAU * k / 5.0) * 3.0, 2.4, couleurs[i % couleurs.size()])
+			Rond.cercle(_ci, p, 1.8, Color("f4c542"))
 
 	# Rivière, puis ses ponts
 	if not _carte.riviere.is_empty():
 		var pts: PackedVector2Array = _carte.riviere.points
 		for p in pts:
-			draw_circle(p, 31.0, Color("6f8f4a"))           # berge
+			Rond.cercle(_ci, p, 31.0, Color("6f8f4a"))           # berge
 		for p in pts:
-			draw_circle(p, 25.0, Color("3f8fc9"))           # eau
+			Rond.cercle(_ci, p, 25.0, Color("3f8fc9"))           # eau
 		for p in pts:
-			draw_circle(p + Vector2(0, -4), 13.0, Color("5aa9dd"))
+			Rond.cercle(_ci, p + Vector2(0, -4), 13.0, Color("5aa9dd"))
 		var t_eau := float(_graine % 100)
 		for i in range(0, pts.size(), 2):
 			var p := pts[i] + Vector2(sin(i * 1.7 + t_eau) * 8.0, sin(i * 2.3) * 8.0)
-			draw_line(p, p + Vector2(12, 0), Color(1, 1, 1, 0.45), 2.0)
+			_ci.draw_line(p, p + Vector2(12, 0), Color(1, 1, 1, 0.45), 2.0)
 		for px in _carte.riviere.ponts:
 			var py := _hauteur_riviere(px)
 			var pont := Rect2(px - 70, py - 40, 140, 80)
-			draw_rect(Rect2(pont.position + Vector2(4, 7), pont.size), Color(0, 0, 0, 0.25))
-			draw_rect(pont, Color("9a6a3a"))
+			_ci.draw_rect(Rect2(pont.position + Vector2(4, 7), pont.size), Color(0, 0, 0, 0.25))
+			_ci.draw_rect(pont, Color("9a6a3a"))
 			for k in 8:
 				var y := pont.position.y + 5 + k * 10
-				draw_line(Vector2(pont.position.x, y), Vector2(pont.end.x, y), Color("7a4f28"), 2.0)
-			draw_rect(Rect2(pont.position + Vector2(0, 2), Vector2(pont.size.x, 3)), Color(1, 1, 1, 0.1))
+				_ci.draw_line(Vector2(pont.position.x, y), Vector2(pont.end.x, y), Color("7a4f28"), 2.0)
+			_ci.draw_rect(Rect2(pont.position + Vector2(0, 2), Vector2(pont.size.x, 3)), Color(1, 1, 1, 0.1))
 			_barriere(Vector2(pont.position.x, pont.position.y - 4), Vector2(pont.position.x, pont.end.y + 4))
 			_barriere(Vector2(pont.end.x, pont.position.y - 4), Vector2(pont.end.x, pont.end.y + 4))
 
 	# Étangs avec leurs roseaux
 	for etang in _carte.etangs:
 		for b in etang:
-			draw_circle(Vector2(b.x, b.y), b.z + 7.0, Color("6f8f4a"))
+			Rond.cercle(_ci, Vector2(b.x, b.y), b.z + 7.0, Color("6f8f4a"))
 		for b in etang:
-			draw_circle(Vector2(b.x, b.y), b.z, Color("3f8fc9"))
+			Rond.cercle(_ci, Vector2(b.x, b.y), b.z, Color("3f8fc9"))
 		for b in etang:
-			draw_circle(Vector2(b.x - b.z * 0.2, b.y - b.z * 0.25), b.z * 0.55, Color("5aa9dd"))
+			Rond.cercle(_ci, Vector2(b.x - b.z * 0.2, b.y - b.z * 0.25), b.z * 0.55, Color("5aa9dd"))
 		for b in etang:
 			for k in 4:
 				var a := rng.randf() * TAU
 				var p: Vector2 = Vector2(b.x, b.y) + Vector2.from_angle(a) * (b.z + 4.0)
 				if not _dans_eau(p, etang):
-					draw_line(p, p + Vector2(-2, -14), Color("4f7a2a"), 2.5)
-					draw_line(p + Vector2(3, 0), p + Vector2(5, -11), Color("5f8f34"), 2.5)
-					draw_circle(p + Vector2(-2, -14), 2.5, Color("7a5230"))
+					_ci.draw_line(p, p + Vector2(-2, -14), Color("4f7a2a"), 2.5)
+					_ci.draw_line(p + Vector2(3, 0), p + Vector2(5, -11), Color("5f8f34"), 2.5)
+					Rond.cercle(_ci, p + Vector2(-2, -14), 2.5, Color("7a5230"))
 			if rng.randf() < 0.5:
 				var p: Vector2 = Vector2(b.x + rng.randf_range(-b.z, b.z) * 0.4, b.y + rng.randf_range(-b.z, b.z) * 0.4)
-				draw_circle(p, 7.0, Color("4f9a3a"))           # nénuphar
-				draw_circle(p + Vector2(2, -1), 2.5, Color("f7a1c4"))
+				Rond.cercle(_ci, p, 7.0, Color("4f9a3a"))           # nénuphar
+				Rond.cercle(_ci, p + Vector2(2, -1), 2.5, Color("f7a1c4"))
 
 	# Sol de paille dans l'enclos, avec une ombre le long du fond
-	draw_rect(e, Color("dcbc6e"))
+	_ci.draw_rect(e, Color("dcbc6e"))
 	var fond := Rect2()
 	match _carte.cote:
 		"haut":
@@ -1135,10 +1175,10 @@ func _draw() -> void:
 			fond = Rect2(e.position, Vector2(18, e.size.y))
 		_:
 			fond = Rect2(Vector2(e.end.x - 18, e.position.y), Vector2(18, e.size.y))
-	draw_rect(fond, Color(0, 0, 0, 0.08))
+	_ci.draw_rect(fond, Color(0, 0, 0, 0.08))
 	for i in int(e.get_area() / 1500.0):
 		var p := Vector2(rng.randf_range(e.position.x + 8, e.end.x - 8), rng.randf_range(e.position.y + 8, e.end.y - 8))
-		draw_line(p, p + Vector2.from_angle(rng.randf() * TAU) * 11.0, Color("c29a4a") if i % 2 else Color("ecd28a"), 2.0)
+		_ci.draw_line(p, p + Vector2.from_angle(rng.randf() * TAU) * 11.0, Color("c29a4a") if i % 2 else Color("ecd28a"), 2.0)
 	# abreuvoir contre le fond, dans un coin
 	var ab: Rect2
 	match _carte.cote:
@@ -1148,13 +1188,13 @@ func _draw() -> void:
 			ab = Rect2(e.position.x + 14, e.position.y + 18, 24, 52)
 		_:
 			ab = Rect2(e.end.x - 38, e.position.y + 18, 24, 52)
-	draw_rect(ab.grow(3), Color("6b4a2a"))
-	draw_rect(ab, Color("5fb7e8"))
-	draw_rect(Rect2(ab.position + Vector2(4, 3), Vector2(minf(20, ab.size.x - 8), 4)), Color(1, 1, 1, 0.5))
+	_ci.draw_rect(ab.grow(3), Color("6b4a2a"))
+	_ci.draw_rect(ab, Color("5fb7e8"))
+	_ci.draw_rect(Rect2(ab.position + Vector2(4, 3), Vector2(minf(20, ab.size.x - 8), 4)), Color(1, 1, 1, 0.5))
 
 	# Bosquets
 	for f in _carte.forets:
-		draw_colored_polygon(f, Color("3d7a2f"))
+		_ci.draw_colored_polygon(f, Color("3d7a2f"))
 	var rf := RandomNumberGenerator.new()
 	rf.seed = _graine + 7
 	for i in 220:
@@ -1162,10 +1202,10 @@ func _draw() -> void:
 		if not _en_foret(p):
 			continue
 		var r := rf.randf_range(16, 30)
-		draw_circle(p + Vector2(4, 8), r, Color(0, 0, 0, 0.2))
-		draw_circle(p, r, Color("2c6526"))
-		draw_circle(p + Vector2(-r * 0.25, -r * 0.3), r * 0.6, Color("3f8a36"))
-		draw_circle(p + Vector2(-r * 0.35, -r * 0.4), r * 0.25, Color("5aa84a"))
+		Rond.cercle(_ci, p + Vector2(4, 8), r, Color(0, 0, 0, 0.2))
+		Rond.cercle(_ci, p, r, Color("2c6526"))
+		Rond.cercle(_ci, p + Vector2(-r * 0.25, -r * 0.3), r * 0.6, Color("3f8a36"))
+		Rond.cercle(_ci, p + Vector2(-r * 0.35, -r * 0.4), r * 0.25, Color("5aa84a"))
 
 	# Haies : une rangée de buissons
 	for h in _carte.haies:
@@ -1175,15 +1215,15 @@ func _draw() -> void:
 		var nb := int(l / 15.0)
 		for k in nb + 1:
 			var p := a.lerp(b, float(k) / nb)
-			draw_circle(p + Vector2(4, 8), 18.0, Color(0, 0, 0, 0.18))
+			Rond.cercle(_ci, p + Vector2(4, 8), 18.0, Color(0, 0, 0, 0.18))
 		for k in nb + 1:
 			var p := a.lerp(b, float(k) / nb) + Vector2(0, sin(k * 2.1) * 2.0)
-			draw_circle(p, 17.0 + sin(k * 1.3) * 2.0, Color("2f6e2a"))
+			Rond.cercle(_ci, p, 17.0 + sin(k * 1.3) * 2.0, Color("2f6e2a"))
 		for k in nb + 1:
 			var p := a.lerp(b, float(k) / nb)
-			draw_circle(p + Vector2(-4, -5), 8.0, Color("4c9640"))
+			Rond.cercle(_ci, p + Vector2(-4, -5), 8.0, Color("4c9640"))
 			if k % 4 == 1:
-				draw_circle(p + Vector2(5, 2), 2.5, Color("f2f2f2"))     # petites fleurs blanches
+				Rond.cercle(_ci, p + Vector2(5, 2), 2.5, Color("f2f2f2"))     # petites fleurs blanches
 
 	# Flèches au sol devant l'entrée
 	if not _gagne:
@@ -1191,7 +1231,7 @@ func _draw() -> void:
 		var cote := dedans.orthogonal()
 		for k in 2:
 			var base := pc - dedans * (40.0 + k * 30.0)
-			draw_colored_polygon(PackedVector2Array([base + dedans * 14.0, base - dedans * 10.0 + cote * 24.0, base - dedans * 10.0 - cote * 24.0]), Color(1, 1, 1, 0.35 - k * 0.14))
+			_ci.draw_colored_polygon(PackedVector2Array([base + dedans * 14.0, base - dedans * 10.0 + cote * 24.0, base - dedans * 10.0 - cote * 24.0]), Color(1, 1, 1, 0.35 - k * 0.14))
 
 	# Barrières de la prairie, de l'enclos et des bosquets
 	var c := CHAMP
@@ -1227,17 +1267,17 @@ func _barriere(a: Vector2, b: Vector2, bois := Color("a87440")) -> void:
 	if l < 1.0:
 		return
 	var n := (b - a) / l
-	draw_line(a + Vector2(3, 6), b + Vector2(3, 6), Color(0, 0, 0, 0.22), 11.0)
-	draw_line(a, b, sombre, 10.0)
-	draw_line(a, b, bois, 5.0)
-	draw_line(a - Vector2(0, 1.5), b - Vector2(0, 1.5), bois.lightened(0.25), 1.5)
+	_ci.draw_line(a + Vector2(3, 6), b + Vector2(3, 6), Color(0, 0, 0, 0.22), 11.0)
+	_ci.draw_line(a, b, sombre, 10.0)
+	_ci.draw_line(a, b, bois, 5.0)
+	_ci.draw_line(a - Vector2(0, 1.5), b - Vector2(0, 1.5), bois.lightened(0.25), 1.5)
 	var nb := maxi(1, int(l / 48.0))
 	for i in nb + 1:
 		var p := a + n * (l * i / nb)
-		draw_circle(p + Vector2(2, 4), 7.5, Color(0, 0, 0, 0.2))
-		draw_circle(p, 7.5, sombre)
-		draw_circle(p, 5.0, bois.lightened(0.15))
-		draw_circle(p + Vector2(-1.5, -1.5), 2.0, bois.lightened(0.4))
+		Rond.cercle(_ci, p + Vector2(2, 4), 7.5, Color(0, 0, 0, 0.2))
+		Rond.cercle(_ci, p, 7.5, sombre)
+		Rond.cercle(_ci, p, 5.0, bois.lightened(0.15))
+		Rond.cercle(_ci, p + Vector2(-1.5, -1.5), 2.0, bois.lightened(0.4))
 
 
 # ---------------------------------------------------------------- interface
@@ -1548,21 +1588,21 @@ class Rocher extends StaticBody2D:
 		add_child(forme)
 
 	func _draw() -> void:
-		draw_circle(Vector2(5, 9), rayon, Color(0, 0, 0, 0.22))
+		Rond.cercle(self, Vector2(5, 9), rayon, Color(0, 0, 0, 0.22))
 		if buisson:
 			var vert := Color("3f7d2c")
 			for i in 6:
-				draw_circle(Vector2.from_angle(TAU * i / 6.0) * rayon * 0.45, rayon * 0.6, vert)
-			draw_circle(Vector2(-rayon * 0.2, -rayon * 0.25), rayon * 0.5, Color("57a03d"))
-			draw_circle(Vector2(-rayon * 0.35, -rayon * 0.4), rayon * 0.22, Color("74bb55"))
+				Rond.cercle(self, Vector2.from_angle(TAU * i / 6.0) * rayon * 0.45, rayon * 0.6, vert)
+			Rond.cercle(self, Vector2(-rayon * 0.2, -rayon * 0.25), rayon * 0.5, Color("57a03d"))
+			Rond.cercle(self, Vector2(-rayon * 0.35, -rayon * 0.4), rayon * 0.22, Color("74bb55"))
 			for i in 5:
-				draw_circle(Vector2.from_angle(1.0 + i * 1.3) * rayon * 0.55, 3.0, Color("d94a4a"))
+				Rond.cercle(self, Vector2.from_angle(1.0 + i * 1.3) * rayon * 0.55, 3.0, Color("d94a4a"))
 		else:
-			draw_circle(Vector2.ZERO, rayon, Color("77797e"))
-			draw_circle(Vector2(-rayon * 0.12, -rayon * 0.15), rayon * 0.85, Color("8d8f94"))
-			draw_circle(Vector2(-rayon * 0.28, -rayon * 0.32), rayon * 0.5, Color("a9abb0"))
-			draw_circle(Vector2(rayon * 0.35, rayon * 0.35), rayon * 0.2, Color("6d6f74"))
-			draw_circle(Vector2(rayon * 0.2, -rayon * 0.5), rayon * 0.16, Color("6e9e4a"))   # mousse
+			Rond.cercle(self, Vector2.ZERO, rayon, Color("77797e"))
+			Rond.cercle(self, Vector2(-rayon * 0.12, -rayon * 0.15), rayon * 0.85, Color("8d8f94"))
+			Rond.cercle(self, Vector2(-rayon * 0.28, -rayon * 0.32), rayon * 0.5, Color("a9abb0"))
+			Rond.cercle(self, Vector2(rayon * 0.35, rayon * 0.35), rayon * 0.2, Color("6d6f74"))
+			Rond.cercle(self, Vector2(rayon * 0.2, -rayon * 0.5), rayon * 0.16, Color("6e9e4a"))   # mousse
 
 
 ## Botte de foin : un objet physique lourd que le chien et les moutons peuvent pousser.
@@ -1583,7 +1623,7 @@ class Foin extends RigidBody2D:
 	func _draw() -> void:
 		var r := Rect2(-COTE / 2.0, -COTE / 2.0, COTE, COTE)
 		draw_set_transform(Vector2.ZERO, -rotation, Vector2.ONE)
-		draw_circle(Vector2(5, 8), COTE * 0.62, Color(0, 0, 0, 0.2))
+		Rond.cercle(self, Vector2(5, 8), COTE * 0.62, Color(0, 0, 0, 0.2))
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 		draw_rect(r, Color("e2bf5a"))
 		for i in 5:
@@ -1620,7 +1660,7 @@ class Nuage extends Node2D:
 	func _draw() -> void:
 		var w := randf_range(120, 220)
 		for i in randi_range(5, 8):
-			draw_circle(Vector2(randf_range(-w / 2, w / 2), randf_range(-35, 35)), randf_range(40, 75), Color(0.02, 0.1, 0.02, 0.06))
+			Rond.cercle(self, Vector2(randf_range(-w / 2, w / 2), randf_range(-35, 35)), randf_range(40, 75), Color(0.02, 0.1, 0.02, 0.06))
 
 
 ## Joystick tactile flottant (dessin seulement ; le toucher est géré par main.gd).
@@ -1657,7 +1697,7 @@ class Joystick extends Control:
 			draw_string(police, p, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 30, Color.WHITE)
 
 	func _dessiner(c: Vector2, b: Vector2, a: float) -> void:
-		draw_circle(c, rayon, Color(0, 0, 0, 0.18 * a))
+		Rond.cercle(self, c, rayon, Color(0, 0, 0, 0.18 * a))
 		draw_arc(c, rayon, 0.0, TAU, 64, Color(1, 1, 1, 0.55 * a), 5.0)
 		# petites flèches sur le pourtour
 		for i in 4:
@@ -1666,10 +1706,10 @@ class Joystick extends Control:
 			draw_colored_polygon(PackedVector2Array([p + d * 8, p - d * 4 + d.orthogonal() * 8, p - d * 4 - d.orthogonal() * 8]), Color(1, 1, 1, 0.4 * a))
 		if b.length() > 4:
 			draw_line(c, c + b, Color(1, 1, 1, 0.25 * a), 14.0)
-		draw_circle(c + b + Vector2(0, 5), 44, Color(0, 0, 0, 0.25 * a))
-		draw_circle(c + b, 44, Color(1, 1, 1, 0.8 * a))
-		draw_circle(c + b, 34, Color(0.95, 0.95, 0.9, 0.9 * a))
-		draw_circle(c + b + Vector2(-10, -12), 10, Color(1, 1, 1, a))
+		Rond.cercle(self, c + b + Vector2(0, 5), 44, Color(0, 0, 0, 0.25 * a))
+		Rond.cercle(self, c + b, 44, Color(1, 1, 1, 0.8 * a))
+		Rond.cercle(self, c + b, 34, Color(0.95, 0.95, 0.9, 0.9 * a))
+		Rond.cercle(self, c + b + Vector2(-10, -12), 10, Color(1, 1, 1, a))
 
 
 ## Os à ramasser (turbo) : flotte doucement et brille ; disparaît au bout de 15 secondes.
@@ -1685,8 +1725,8 @@ class Os extends Node2D:
 	func _draw() -> void:
 		var a := 1.0 if _t < 13.0 else (0.5 + 0.5 * sin(_t * 20.0))
 		var h := sin(_t * 3.0) * 3.0
-		draw_circle(Vector2(2, 9), 13.0, Color(0, 0, 0, 0.18 * a))
-		draw_circle(Vector2(0, h), 24.0 + sin(_t * 5.0) * 3.0, Color(1, 0.9, 0.4, 0.22 * a))
+		Rond.cercle(self, Vector2(2, 9), 13.0, Color(0, 0, 0, 0.18 * a))
+		Rond.cercle(self, Vector2(0, h), 24.0 + sin(_t * 5.0) * 3.0, Color(1, 0.9, 0.4, 0.22 * a))
 		draw_set_transform(Vector2(0, h), 0.5, Vector2.ONE)
 		var os := Color(0.98, 0.95, 0.86, a)
 		var ombre := Color(0.8, 0.75, 0.62, a)
@@ -1694,8 +1734,8 @@ class Os extends Node2D:
 		draw_rect(Rect2(-11, -4, 22, 6), os)
 		for x in [-12.0, 12.0]:
 			for y in [-4.0, 4.0]:
-				draw_circle(Vector2(x, y), 5.0, ombre)
-				draw_circle(Vector2(x, y - 1), 4.5, os)
+				Rond.cercle(self, Vector2(x, y), 5.0, ombre)
+				Rond.cercle(self, Vector2(x, y - 1), 4.5, os)
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
@@ -1760,17 +1800,17 @@ class BoutonRond extends Control:
 		var r := minf(size.x, size.y) / 2.0
 		var pret := charge >= 0.999
 		var enfonce := appuye > 0.0
-		draw_circle(c + Vector2(0, 8), r, couleur.darkened(0.55))
+		Rond.cercle(self, c + Vector2(0, 8), r, couleur.darkened(0.55))
 		var col := couleur if pret else couleur.darkened(0.45)
 		var cc := c + (Vector2(0, 5) if enfonce else Vector2.ZERO)
-		draw_circle(cc, r, col)
-		draw_circle(cc, r * 0.8, col.lightened(0.12))
-		draw_circle(cc + Vector2(-r * 0.3, -r * 0.35), r * 0.25, Color(1, 1, 1, 0.18))
+		Rond.cercle(self, cc, r, col)
+		Rond.cercle(self, cc, r * 0.8, col.lightened(0.12))
+		Rond.cercle(self, cc + Vector2(-r * 0.3, -r * 0.35), r * 0.25, Color(1, 1, 1, 0.18))
 		if not pret:
 			draw_arc(cc, r - 5.0, -PI / 2.0, -PI / 2.0 + TAU * charge, 48, Color(1, 1, 1, 0.9), 7.0)
 		if note:
 			var blanc := Color(1, 1, 1, 0.5 if barre else 1.0)
-			draw_circle(cc + Vector2(-r * 0.18, r * 0.28), r * 0.2, blanc)
+			Rond.cercle(self, cc + Vector2(-r * 0.18, r * 0.28), r * 0.2, blanc)
 			draw_line(cc + Vector2(0, r * 0.28), cc + Vector2(0, -r * 0.42), blanc, 3.0)
 			draw_line(cc + Vector2(0, -r * 0.42), cc + Vector2(r * 0.3, -r * 0.2), blanc, 3.0)
 			if barre:
@@ -1818,6 +1858,14 @@ class Rafale extends Node2D:
 			var p := Vector2(t.x, t.y)
 			if annonce != Vector2.ZERO:
 				if t.z < 0.3:      # feuilles qui tourbillonnent
-					draw_circle(p, 4.0, Color(0.45, 0.7, 0.3, 0.9))
+					Rond.cercle(self, p, 4.0, Color(0.45, 0.7, 0.3, 0.9))
 			else:
 				draw_line(p, p - d * (40.0 + 60.0 * t.z) * force, Color(1, 1, 1, 0.45 * force), 2.0 + t.z * 2.0)
+
+
+## Nœud qui peint la carte dans l'image hors écran.
+class Peintre extends Node2D:
+	var dessin: Callable
+
+	func _draw() -> void:
+		dessin.call(self)

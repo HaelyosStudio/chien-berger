@@ -6,8 +6,8 @@ config_version=5
 
 config/name="SheperdRun"
 config/description="SheperdRun : guide les moutons dans leur enclos avec ton chien berger (jeu physique pour téléphone)."
-config/version="0.5.0"
-config/build=10
+config/version="0.5.1"
+config/build=11
 config/maj_manifeste="https://github.com/HaelyosStudio/chien-berger/releases/latest/download/manifest.json"
 run/main_scene="res://main.tscn"
 config/quit_on_go_back=false

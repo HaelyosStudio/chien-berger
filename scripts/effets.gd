@@ -1,4 +1,5 @@
 extends Node2D
+const Rond := preload("res://scripts/rond.gd")
 ## Petits effets visuels dessinés par le code : poussière, brins d'herbe, cœurs,
 ## étincelles, confettis et textes qui s'envolent. Un seul nœud pour tout (léger sur téléphone).
 
@@ -93,7 +94,7 @@ func _draw() -> void:
 		match p.type:
 			0:  # poussière : grossit et s'efface
 				c.a *= 1.0 - k
-				draw_circle(p.p, p.taille * (0.6 + k * 0.9), c)
+				Rond.cercle(self, p.p, p.taille * (0.6 + k * 0.9), c)
 			1:  # brin d'herbe qui tourne
 				c.a = 1.0 - k * k
 				var d: Vector2 = Vector2.from_angle(p.rot) * p.taille
@@ -101,15 +102,15 @@ func _draw() -> void:
 			2:  # cœur
 				c.a = 1.0 - k * k
 				var s: float = p.taille * (0.6 + minf(k * 4.0, 1.0) * 0.4)
-				draw_circle(p.p + Vector2(-s * 0.5, 0), s * 0.6, c)
-				draw_circle(p.p + Vector2(s * 0.5, 0), s * 0.6, c)
+				Rond.cercle(self, p.p + Vector2(-s * 0.5, 0), s * 0.6, c)
+				Rond.cercle(self, p.p + Vector2(s * 0.5, 0), s * 0.6, c)
 				draw_colored_polygon(PackedVector2Array([p.p + Vector2(-s * 1.05, s * 0.2), p.p + Vector2(s * 1.05, s * 0.2), p.p + Vector2(0, s * 1.3)]), c)
 			3:  # étincelle en forme d'étoile
 				c.a = 1.0 - k
 				var s: float = p.taille * (1.0 - k * 0.5)
 				draw_line(p.p - Vector2(s * 1.6, 0), p.p + Vector2(s * 1.6, 0), c, 2.0)
 				draw_line(p.p - Vector2(0, s * 1.6), p.p + Vector2(0, s * 1.6), c, 2.0)
-				draw_circle(p.p, s * 0.6, c)
+				Rond.cercle(self, p.p, s * 0.6, c)
 			4:  # confetti qui tourne
 				c.a = 1.0 if k < 0.7 else (1.0 - k) / 0.3
 				var l: float = p.taille

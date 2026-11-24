@@ -1,4 +1,5 @@
 extends RigidBody2D
+const Rond := preload("res://scripts/rond.gd")
 ## Un mouton : corps physique qui fuit le chien, reste collé au troupeau et broute au hasard.
 ## Il est poussé par des forces (jamais déplacé directement) : collisions, poids et inertie réels.
 ## La peur se transmet de voisin en voisin : le troupeau réagit comme une seule masse.
@@ -43,6 +44,7 @@ signal appelle                   # l'agneau perdu bêle
 var _face := false               # le bélier fait face au chien
 var _recharge_charge := 0.0
 var _appel := 1.0
+var _immobile := false
 
 var _errance := Vector2.ZERO
 var _prochaine_errance := 0.0
@@ -99,6 +101,11 @@ func _ready() -> void:
 # ---------------------------------------------------------------- comportement
 
 func _physics_process(delta: float) -> void:
+	# Économie de calcul : chaque mouton ne réfléchit qu'une image sur deux (la moitié du troupeau
+	# à chaque image). Entre deux, sa force reste appliquée (constant_force).
+	if (Engine.get_physics_frames() + _tour) % 2 != 0:
+		return
+	delta *= 2.0
 	var pos := global_position
 	var force := Vector2.ZERO
 	_panique = maxf(0.0, _panique - delta * 0.7)
@@ -137,9 +144,7 @@ func _physics_process(delta: float) -> void:
 			force += ecart_l / dl * FORCE_PEUR * 1.3 * pl
 
 	# 2. Troupeau : se rapprocher, suivre les autres, sans se coller ; la peur est contagieuse.
-	#    Les voisins ne sont recherchés qu'une image sur deux (économie de calcul sur téléphone).
-	if (Engine.get_physics_frames() + _tour) % 2 == 0:
-		_chercher_voisins(pos)
+	_chercher_voisins(pos)
 	peur = maxf(peur_directe, _peur_voisine * 0.85)
 	if _nb_voisins > 0:
 		var envie := 0.35 + peur * 1.3      # un mouton qui a peur se serre contre les autres
@@ -199,7 +204,7 @@ func _physics_process(delta: float) -> void:
 	if dans_enclos:
 		force += fond * 70.0 * calme + (enclos.get_center() - pos).limit_length(1.0) * 30.0
 
-	apply_central_force(force * mass)
+	constant_force = force * mass
 
 
 func _chercher_voisins(pos: Vector2) -> void:
@@ -260,6 +265,13 @@ func _process(delta: float) -> void:
 	_choc = maxf(0.0, _choc - delta * 5.0)
 	var v := linear_velocity
 	var vit := v.length()
+	# immobile et calme : la pose ne change pas, inutile de tout recalculer
+	if vit < 4.0 and not fete and _choc <= 0.0 and _panique <= 0.55 and not perdu and not _face:
+		if _immobile:
+			return
+		_immobile = true
+	else:
+		_immobile = false
 	if _face and chien:
 		var vers_chien := (chien.global_position - global_position).normalized()
 		_regard = _regard.slerp(vers_chien, minf(delta * 1.3, 1.0)).normalized()
@@ -336,11 +348,11 @@ func _partie(parent: Node, dessin: Callable) -> Partie:
 
 
 func _dessiner_ombre(n: Node2D) -> void:
-	n.draw_circle(Vector2.ZERO, _r * 1.05, Color(0, 0, 0, 0.22))
+	Rond.cercle(n, Vector2.ZERO, _r * 1.05, Color(0, 0, 0, 0.22))
 
 
 func _dessiner_patte(n: Node2D) -> void:
-	n.draw_circle(Vector2.ZERO, _r * 0.18, Color(0.16, 0.14, 0.13))
+	Rond.cercle(n, Vector2.ZERO, _r * 0.18, Color(0.16, 0.14, 0.13))
 
 
 func _dessiner_corps(n: Node2D) -> void:
@@ -355,22 +367,22 @@ func _dessiner_corps(n: Node2D) -> void:
 	var bouclettes: Array[Vector2] = []
 	for i in 9:
 		bouclettes.append(Vector2.from_angle(TAU * i / 9.0 + randf_range(-0.2, 0.2)) * randf_range(0.48, 0.62))
-	n.draw_circle(Vector2(0.5, 1.5), r * 1.02, laine_ombre)
+	Rond.cercle(n, Vector2(0.5, 1.5), r * 1.02, laine_ombre)
 	for o in bouclettes:
-		n.draw_circle(o * r + Vector2(0.5, 1.0), r * 0.47, laine_ombre)
+		Rond.cercle(n, o * r + Vector2(0.5, 1.0), r * 0.47, laine_ombre)
 	for o in bouclettes:
-		n.draw_circle(o * r, r * 0.44, laine)
-	n.draw_circle(Vector2.ZERO, r * 0.7, laine)
-	n.draw_circle(Vector2(-r * 0.25, -r * 0.3), r * 0.38, laine_lumiere)
+		Rond.cercle(n, o * r, r * 0.44, laine)
+	Rond.cercle(n, Vector2.ZERO, r * 0.7, laine)
+	Rond.cercle(n, Vector2(-r * 0.25, -r * 0.3), r * 0.38, laine_lumiere)
 
 
 func _dessiner_tete(n: Node2D) -> void:
 	# repère local : +x = devant
 	var r := _r
 	var fonce := Color(0.16, 0.14, 0.13)
-	n.draw_circle(Vector2(-2.0, r * 0.5), r * 0.22, fonce)
-	n.draw_circle(Vector2(-2.0, -r * 0.5), r * 0.22, fonce)
-	n.draw_circle(Vector2.ZERO, r * 0.42, fonce)
+	Rond.cercle(n, Vector2(-2.0, r * 0.5), r * 0.22, fonce)
+	Rond.cercle(n, Vector2(-2.0, -r * 0.5), r * 0.22, fonce)
+	Rond.cercle(n, Vector2.ZERO, r * 0.42, fonce)
 	if belier:      # grosses cornes enroulées
 		var corne := Color("a07850")
 		for s in [-1.0, 1.0]:
@@ -379,8 +391,8 @@ func _dessiner_tete(n: Node2D) -> void:
 	var oeil := 3.0 if _yeux_effrayes else 1.6
 	for s in [-1.0, 1.0]:
 		var p := Vector2(1.5, 3.0 * s)
-		n.draw_circle(p, oeil, Color.WHITE)
-		n.draw_circle(p + Vector2(0.7, 0), 0.9, fonce)
+		Rond.cercle(n, p, oeil, Color.WHITE)
+		Rond.cercle(n, p + Vector2(0.7, 0), 0.9, fonce)
 
 
 func _dessiner_alerte(n: Node2D) -> void:
